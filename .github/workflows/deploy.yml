@@ -1,0 +1,112 @@
+name: Build & Deploy to SERVER
+
+on:
+  push:
+    branches:
+      - master  # Adjust as needed
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Image to GHCR
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: 🚀 Notify Telegram - Build Started
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_TO }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          format: markdown
+          message: |
+            🛠 **Build Process Started**
+            🔹 **User:** ${{ github.actor }}
+            🔹 **Repository:** [${{ github.repository }}](https://github.com/${{ github.repository }})
+            🔹 **Commit Message:** _${{ github.event.commits[0].message }}_
+            🔹 [Compare Changes](${{ github.event.compare }})
+            🔹 📦 **Pushing Docker Image to GHCR...** 
+
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.ACCESS_TOKEN }}" | docker login ghcr.io -u itsapk --password-stdin
+
+      - name: Build Docker image
+        run: docker build -t ghcr.io/itsapk/qmd-audit-api:latest .
+
+      - name: Push Docker image to GHCR
+        run: docker push ghcr.io/itsapk/qmd-audit-api:latest
+
+      - name: ✅ Notify Telegram - Build Completed
+        uses: appleboy/telegram-action@master
+        if: success()
+        with:
+          to: ${{ secrets.TELEGRAM_TO }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          format: markdown
+          message: |
+            ✅ **Build Completed & Image Pushed**
+            🔹 **User:** ${{ github.actor }}
+            🔹 **Repository:** [${{ github.repository }}](https://github.com/${{ github.repository }})
+            🔹 **Commit Message:** _${{ github.event.commits[0].message }}_
+            🔹 **Docker Image:** [View on GHCR](https://github.com/itsapk/qmd-audit-api/pkgs/container/qmd-audit-api)
+            🔹 🔄 **Proceeding to Deployment...**
+
+  deploy:
+    name: Deploy to SERVER
+    runs-on: ubuntu-latest
+    needs: build-and-push
+
+    steps:
+      - name: 🚀 Notify Telegram - Deployment Started
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_TO }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          format: markdown
+          message: |
+            📡 **Deployment Started**
+            🔹 **User:** ${{ github.actor }}
+            🔹 **Repository:** [${{ github.repository }}](https://github.com/${{ github.repository }})
+            🔹 **Commit Message:** _${{ github.event.commits[0].message }}_
+            🔹 **Server:** 🚀 Deploying to `Production`
+            🔹 ⏳ **Pulling latest Docker image...**
+
+      - name: SSH into SERVER and Deploy
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}  
+          script: |
+            echo "🔑 Logging into GHCR..."
+            docker login ghcr.io -u itsapk --password ${{ secrets.ACCESS_TOKEN }}
+
+            echo "📥 Pulling latest Docker image..."
+            docker pull ghcr.io/itsapk/qmd-audit-api:latest
+
+            echo "🛑 Stopping existing container (if running)..."
+            docker stop qmd-audit-api || true
+
+            echo "🗑 Removing old container..."
+            docker rm qmd-audit-api || true
+
+            echo "🚀 Starting new container..."
+            docker run -d --name qmd-audit-api -p 3241:3241 --restart unless-stopped ghcr.io/itsapk/qmd-audit-api:latest
+
+      - name: ✅ Notify Telegram - Deployment Completed
+        uses: appleboy/telegram-action@master
+        if: success()
+        with:
+          to: ${{ secrets.TELEGRAM_TO }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          format: markdown
+          message: |
+            🎉 **Deployment Completed Successfully**
+            🔹 **User:** ${{ github.actor }}
+            🔹 **Repository:** [${{ github.repository }}](https://github.com/${{ github.repository }})
+            🔹 **Commit Message:** _${{ github.event.commits[0].message }}_
+            🔹 🌍 **Live at:** [http://audit.niranthra.online](http://qmd-audit-api.niranthra.online) 
+            🔹 ✅ **Container Started Successfully!**
+
+     
