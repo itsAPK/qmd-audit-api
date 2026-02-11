@@ -91,3 +91,6 @@ openapi.json
 # Sentry debug data
 sentry-debug.log
 logs/app.log
+
+
+.env
