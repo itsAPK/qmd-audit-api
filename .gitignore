@@ -1,0 +1,93 @@
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+.coverage
+.tox/
+.nox/
+.pytest_cache/
+htmlcov/
+coverage.xml
+
+# Mypy / Pylint / Ruff / other linters
+.mypy_cache/
+.dmypy.json
+.pyre/
+.pytype/
+ruff_cache/
+
+# Pyre type checker
+.pyre/
+
+# VSCode settings
+.vscode/
+*.code-workspace
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Docker
+*.pid
+*.tar
+docker-compose.override.yml
+
+# Local secrets
+
+
+# SQLite / DB
+*.sqlite3
+*.db
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# Prometheus config cache (if edited on host)
+prometheus.yml
+
+# __pypackages__ for PEP 582
+__pypackages__/
+
+# FastAPI generated OpenAPI cache (if any)
+openapi.json
+
+# Sentry debug data
+sentry-debug.log
+logs/app.log
