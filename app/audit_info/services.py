@@ -87,60 +87,60 @@ class AuditInfoService:
             select(AuditInfo).where(AuditInfo.ref == ref)
         )
         audit_info = audit_info.scalar_one_or_none()
-        if audit_info:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "message": f"You cannot assign team to an department that is already assigned to an audit under the same reference ({audit.ref})",
-                    "success": False,
-                    "status": status.HTTP_404_NOT_FOUND,
-                    "data": None,
-                },
-            )
+        # if audit_info:
+        #     raise HTTPException(
+        #         status_code=status.HTTP_404_NOT_FOUND,
+        #         detail={
+        #             "message": f"You cannot assign team to an department that is already assigned to an audit under the same reference ({audit.ref})",
+        #             "success": False,
+        #             "status": status.HTTP_404_NOT_FOUND,
+        #             "data": None,
+        #         },
+        #     )
 
-        if audit.end_date < to_naive(data.from_date):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "message": "You cannot assign team to an audit that has ended",
-                    "success": False,
-                    "status": status.HTTP_400_BAD_REQUEST,
-                    "data": None,
-                },
-            )
+        # if audit.end_date < to_naive(data.from_date):
+        #     raise HTTPException(
+        #         status_code=status.HTTP_400_BAD_REQUEST,
+        #         detail={
+        #             "message": "You cannot assign team to an audit that has ended",
+        #             "success": False,
+        #             "status": status.HTTP_400_BAD_REQUEST,
+        #             "data": None,
+        #         },
+        #     )
 
-        if audit.start_date < to_naive(data.from_date):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "message": "You cannot assign team to an audit that has started before the start date",
-                    "success": False,
-                    "status": status.HTTP_400_BAD_REQUEST,
-                    "data": None,
-                },
-            )
+        # if audit.start_date < to_naive(data.from_date):
+        #     raise HTTPException(
+        #         status_code=status.HTTP_400_BAD_REQUEST,
+        #         detail={
+        #             "message": "You cannot assign team to an audit that has started before the start date",
+        #             "success": False,
+        #             "status": status.HTTP_400_BAD_REQUEST,
+        #             "data": None,
+        #         },
+        #     )
 
-        if audit.start_date < to_naive(data.from_date):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "message": "You cannot assign team to an audit that has started before the start date",
-                    "success": False,
-                    "status": status.HTTP_400_BAD_REQUEST,
-                    "data": None,
-                },
-            )
+        # if audit.start_date < to_naive(data.from_date):
+        #     raise HTTPException(
+        #         status_code=status.HTTP_400_BAD_REQUEST,
+        #         detail={
+        #             "message": "You cannot assign team to an audit that has started before the start date",
+        #             "success": False,
+        #             "status": status.HTTP_400_BAD_REQUEST,
+        #             "data": None,
+        #         },
+        #     )
 
-        if audit.end_date < to_naive(data.from_date):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "message": "You cannot assign team to an audit that has ended before the start date",
-                    "success": False,
-                    "status": status.HTTP_400_BAD_REQUEST,
-                    "data": None,
-                },
-            )
+        # if audit.end_date < to_naive(data.from_date):
+        #     raise HTTPException(
+        #         status_code=status.HTTP_400_BAD_REQUEST,
+        #         detail={
+        #             "message": "You cannot assign team to an audit that has ended before the start date",
+        #             "success": False,
+        #             "status": status.HTTP_400_BAD_REQUEST,
+        #             "data": None,
+        #         },
+        #     )
             
         department = await self.session.execute(
             select(Department).where(Department.id == data.department_id)
@@ -169,14 +169,12 @@ class AuditInfoService:
 
         await self.session.refresh(add_audit_info)
         
-        auditee = next(
-                    (
-                        x.user.name
-                        for x in data.team
-                        if x.role == AuditTeamRole.AUDITEE and x.user
-                    ),
-                    "N/A",
-                )
+        
+        teams = []
+        
+        auditee = 'N/A'
+        auditor = 'N/A'
+                
         for team in data.team:
             user = await self.session.execute(
                 select(User).where(User.id == team.user_id)
@@ -192,11 +190,17 @@ class AuditInfoService:
                         "data": None,
                     },
                 )
+
             add_team = AuditTeam(
                 user_id=team.user_id,
                 role=team.role,
                 audit_info_id=add_audit_info.id,
             )
+            if team.role == AuditTeamRole.AUDITOR and auditor == 'N/A':
+                auditor = user.name
+                
+            if team.role == AuditTeamRole.AUDITEE:
+                auditee = user.name
             self.session.add(add_team)
 
             await self.session.commit()
@@ -241,6 +245,7 @@ class AuditInfoService:
                             f"<p><strong>Internal audit Ref. No:</strong> {ref}</p>"
                             f"<p><strong>Date:</strong> {datetime.now().strftime('%d %B %Y')}</p>"
                             f"<p><strong>Audit Date:</strong> {data.from_date.strftime('%d %B %Y')} to {data.to_date.strftime('%d %B %Y')}</p>"
+                            f"<p><strong>Auditor:</strong> {auditor}</p>"
                             f"<p><strong>Department:</strong> {department.name}</p>"
                             f"<p>For any clarification or support, feel free to contact the QMS department.</p>"
                         ),

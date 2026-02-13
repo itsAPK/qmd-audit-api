@@ -23,15 +23,19 @@ conf = ConnectionConfig(
     MAIL_PORT=settings.MAIL_PORT,
     MAIL_SERVER=settings.MAIL_SERVER,
     MAIL_FROM_NAME=settings.MAIL_FROM_NAME,
-    MAIL_STARTTLS=False,
-    MAIL_SSL_TLS=False,
-    USE_CREDENTIALS=False,
+    MAIL_SSL_TLS=True,
+    USE_CREDENTIALS=True,
     VALIDATE_CERTS=False,
     TEMPLATE_FOLDER=Path(__file__).resolve().parent.parent.parent / "templates",
+    MAIL_DEBUG=True,
+    MAIL_STARTTLS=False
 )
 
 
+
+
 async def send_email(to: list[str], subject: str, context: dict):
+    print(conf)
     try:
         logger.info(f"Attempting to send email to: {to} | Subject: {subject}")
         logger.debug(f"Email context: {context}")

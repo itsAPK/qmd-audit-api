@@ -166,6 +166,7 @@ class NCRService:
             ss_clause=data.ss_clause,
         )
         self.session.add(ncr_new)
+        await self.session.commit()
 
         for document_reference in data.document_references:
             document_reference = DocumentReference(
@@ -177,19 +178,22 @@ class NCRService:
             self.session.add(document_reference)
 
         created_team = NCRTeam(
-            user_id=user_id,
-            role_id=NCRTeamRole.CREATED_BY,
-            ncr_id=ncr_new.id,
-        )
-        self.session.add(created_team)
+    user_id=user_id,
+    role=NCRTeamRole.CREATED_BY,
+    ncr_id=ncr_new.id,
+)
 
         auditee_team = NCRTeam(
             user_id=data.auditee_id,
-            role_id=NCRTeamRole.AUDITEE,
+            role=NCRTeamRole.AUDITEE,
             ncr_id=ncr_new.id,
         )
-        self.session.add(auditee_team)
+        
+        print([created_team, auditee_team])
+
+        self.session.add_all([created_team, auditee_team])
         await self.session.commit()
+
         await self.session.refresh(ncr_new)
 
         background_tasks.add_task(

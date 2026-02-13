@@ -301,7 +301,7 @@ async def get_all_users_by_role(
     )
     
 @router.patch("/{user_id}", status_code=status.HTTP_200_OK)
-async def update_user_department(
+async def update_user(
     user_id: UUID,
     request: UpdateUserRequest,
     user_service: UserService = Depends(get_user_service),

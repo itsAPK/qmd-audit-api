@@ -1225,7 +1225,7 @@ class DashboardService:
                     {"label": c or "Unknown", "count": n} for c, n in clause_wise
                 ],
                 "followup_outcome": [
-                    {"status": s.value, "count": c} for s, c in followup_outcome
+                    {"status": s, "count": c} for s, c in followup_outcome
                 ],
             },
             "tables": {
