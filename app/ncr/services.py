@@ -195,6 +195,7 @@ class NCRService:
         background_tasks.add_task(
             send_email,
             [auditee.email],
+            f"Non-Conformity Raised {ncr_new.ref} by {created_by.name}",
             {
                 "user": auditee.name,
                 "message": (

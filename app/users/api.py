@@ -12,6 +12,7 @@ from app.users.models import (
     RoleResponse,
     RoleUpdateRequest,
     RolesResponseList,
+    UpdateUserRequest,
     User,
     UserCreateRequest,
     UserDepartmentResponse,
@@ -294,6 +295,20 @@ async def get_all_users_by_role(
     user_department = await user_service.get_all_users_by_role(filters, sort)
     return Response(
         message="User department fetched successfully",
+        status=ResponseStatus.SUCCESS,
+        success=True,
+        data=user_department,
+    )
+    
+@router.patch("/{user_id}", status_code=status.HTTP_200_OK)
+async def update_user_department(
+    user_id: UUID,
+    request: UpdateUserRequest,
+    user_service: UserService = Depends(get_user_service),
+):
+    user_department = await user_service.update_user(user_id, request)    
+    return Response(
+        message="User department updated successfully",
         status=ResponseStatus.SUCCESS,
         success=True,
         data=user_department,
