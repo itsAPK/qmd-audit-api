@@ -11,6 +11,7 @@ from app.edc_request.api import router as edc_request_router
 from app.documents.api import router as documents_router
 from app.dashboard.api import router as dashboard_router
 from app.checklist.api import router as checklist_router
+from app.suggestions.api import router as suggestions_router
 
 api_router = APIRouter(prefix="/api")
 
@@ -46,6 +47,11 @@ routers_config = {
         "prefix": "ncr",
         "tags": ["NCR"],
         
+    },
+    "suggestions_router": {
+        "router": suggestions_router,
+        "prefix": "suggestions",
+        "tags": ["suggestions"],
     },
     "followup_router": {
         "router": followup_router,

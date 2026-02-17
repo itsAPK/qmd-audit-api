@@ -973,7 +973,7 @@ class NCRService:
         )
         self.session.add(ncr_file)
         await self.session.commit()
-        return ncr
+        return ncr_file
 
     async def add_document_reference(
         self, ncr_id: UUID, document_reference: CreateDocumentReferenceRequest

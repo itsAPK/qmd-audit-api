@@ -44,6 +44,10 @@ class AuditInfo(BaseModel, table=True):
         back_populates="audit_info",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
+    suggestions : list["Suggestion"] = Relationship(
+        back_populates="audit_info",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
     
 
 class AuditTeamRole(str, Enum):
@@ -123,3 +127,4 @@ from app.audit.models import Audit
 from app.settings.models import Department,DepartmentResponse
 from app.users.models import User,UserResponse
 from app.ncr.models import NCR
+from app.suggestions.models import Suggestion

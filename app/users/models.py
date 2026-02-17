@@ -55,6 +55,11 @@ class User(BaseModel, table=True):
         back_populates="user",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
+    
+    suggestion_teams: list["SuggestionTeam"] = Relationship(
+        back_populates="user",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+)
 
     followup_auditor: list["Followup"] = Relationship(
         back_populates="auditor",
@@ -205,3 +210,5 @@ from app.checklist.models import (
     InternalAuditObservationChecklist,
     FranchiseAuditChecklist,
 )
+
+from app.suggestions.models import SuggestionTeam

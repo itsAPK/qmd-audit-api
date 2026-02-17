@@ -124,7 +124,7 @@ class FollowupService:
             ncr.followup_observations = data.observations
             followup.completed_on = to_naive(datetime.now())
             followup.status = FollowupStatus.COMPLETED
-
+            ncr.actual_date_of_completion = datetime.now()
             ncr.status = NCRStatus.FOLLOW_COMPLETED
             ncr.followup_date = to_naive(datetime.now())
 
