@@ -413,3 +413,18 @@ async def delete_clause(
         success=True,
         data=True,
     )
+
+
+@router.post("/bulk/update")
+async def upload_ncr_excel(
+    file: UploadFile,
+    background_tasks: BackgroundTasks,
+    service : NCRService = Depends(get_ncr_service),
+    user : User = Depends(authenticate),
+):
+    file_bytes = await file.read()
+
+    return await service.upload_excel_in_background(
+        background_tasks,
+        file_bytes,
+        user.id)

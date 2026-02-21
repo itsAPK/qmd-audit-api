@@ -1,4 +1,7 @@
 from datetime import datetime
+import logging
+import time
+import traceback
 from typing import Optional
 
 from sqlalchemy import and_, case, func, literal, or_, union_all
@@ -9,9 +12,12 @@ from app.audit_info.models import (
     AuditTeam,
     AuditTeamResponse,
 )
+import pandas as pd
+from sqlalchemy import update, bindparam
 from app.core.config import settings
 from app.core.constants import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
 from app.core.mail import send_email
+from app.core.schemas import Response, ResponseStatus
 from app.ncr.models import (
     NCR,
     CreateDocumentReferenceRequest,
@@ -178,17 +184,17 @@ class NCRService:
             self.session.add(document_reference)
 
         created_team = NCRTeam(
-    user_id=user_id,
-    role=NCRTeamRole.CREATED_BY,
-    ncr_id=ncr_new.id,
-)
+            user_id=user_id,
+            role=NCRTeamRole.CREATED_BY,
+            ncr_id=ncr_new.id,
+        )
 
         auditee_team = NCRTeam(
             user_id=data.auditee_id,
             role=NCRTeamRole.AUDITEE,
             ncr_id=ncr_new.id,
         )
-        
+
         print([created_team, auditee_team])
 
         self.session.add_all([created_team, auditee_team])
@@ -266,7 +272,7 @@ class NCRService:
 
             if data.status == NCRStatus.CLOSED:
                 ncr.closed_on = datetime.now()
-            
+
             if data.status == NCRStatus.FOLLOW_COMPLETED:
                 ncr.actual_date_of_completion = datetime.now()
 
@@ -1775,7 +1781,9 @@ class NCRService:
             to_date=to_date,
         )
 
-        for c_id, status, count in (await self.session.execute(count_stmt)).all():
+        for c_id, status, count in (
+            await self.session.execute(count_stmt)
+        ).all():  # noqa: F402
             result[c_id]["status_counts"][status] = count
 
         ncr_stmt = (
@@ -1797,3 +1805,208 @@ class NCRService:
             result[c_id]["ncrs"].append(self.ncr_to_dict(ncr))
 
         return list(result.values())
+
+    def _normalize_column(self, col: str) -> str:
+        return col.strip().lower().replace(" ", "_")
+
+    def _parse_value(self, field_name: str, value):
+        if pd.isna(value):
+            return None
+
+        if field_name == "status":
+            return NCRStatus(str(value).strip().upper())
+
+        if field_name == "repeat":
+            return str(value).strip().upper() == "YES"
+
+        if field_name == "rejected_count":
+            return int(value)
+
+        if field_name in [
+            "expected_date_of_completion",
+            "actual_date_of_completion",
+            "edc_given_date",
+            "followup_date",
+            "closed_on",
+        ]:
+            return pd.to_datetime(value)
+
+        return value
+
+    async def upload_excel_in_background(
+        self, background_tasks: BackgroundTasks, file: bytes,user_id: UUID
+    ):
+        logging.info("NCR Excel upload scheduled in background task")
+        background_tasks.add_task(self.upload_excel, file,user_id)
+
+        return Response(
+            message="NCR Excel upload is in progress.",
+            success=True,
+            status=ResponseStatus.ACCEPTED,
+            data=None,
+        )
+
+    async def upload_excel(self, file: bytes, user_id: UUID):
+        
+        user = await self.session.execute(select(User).where(User.id == user_id))
+        user = user.scalar_one_or_none()
+        
+        logging.info("========== NCR EXCEL UPLOAD STARTED ==========")
+
+        start_time = time.time()
+
+        total_rows = 0
+        processed_rows = 0
+        skipped_rows = 0
+        failed_rows = 0
+        updated_rows = 0
+
+        try:
+            logging.debug("Reading Excel file...")
+            df = pd.read_excel(file)
+            total_rows = len(df)
+
+            logging.info(f"Excel loaded successfully. Total rows: {total_rows}")
+
+            update_payload = []
+
+            for index, row in df.iterrows():
+                ref = row.get("Reference")
+
+                if not ref:
+                    skipped_rows += 1
+                    continue
+
+                row_data = {"ref_param": ref}
+                processed_rows += 1
+
+                for col in df.columns:
+                    if col == "Reference":
+                        continue
+
+                    field_name = col.strip().lower().replace(" ", "_")
+
+                    if field_name not in NCR.model_fields:
+                        continue
+
+                    value = row[col]
+
+                    if pd.isna(value):
+                        continue
+
+                    try:
+                        if field_name == "status":
+                            value = NCRStatus(str(value).strip().upper())
+
+                        elif field_name == "repeat":
+                            value = str(value).strip().upper() == "YES"
+
+                        elif field_name == "rejected_count":
+                            value = int(value)
+
+                        elif field_name in ["main_clause", "sub_clause", "ss_clause"]:
+                            value = str(value)
+
+                        elif field_name in [
+                            "expected_date_of_completion",
+                            "actual_date_of_completion",
+                            "edc_given_date",
+                            "followup_date",
+                            "closed_on",
+                            "created_at",
+                            "updated_at",
+                        ]:
+                            parsed_date = pd.to_datetime(value, errors="coerce")
+                            value = (
+                                parsed_date.to_pydatetime()
+                                if not pd.isna(parsed_date)
+                                else None
+                            )
+
+                    except Exception:
+                        failed_rows += 1
+                        continue
+
+                    row_data[field_name] = value
+
+                if len(row_data) > 1:
+                    update_payload.append(row_data)
+
+            if not update_payload:
+                logging.warning("No valid rows found.")
+                return
+
+
+            update_columns = set()
+            for row in update_payload:
+                update_columns.update(row.keys())
+
+            update_columns.discard("ref_param")
+
+            for row in update_payload:
+                for col in update_columns:
+                    row.setdefault(col, None)
+
+            # sanitize NaT / nan
+            for row in update_payload:
+                for key, value in row.items():
+                    if pd.isna(value):
+                        row[key] = None
+
+
+            update_stmt = (
+                update(NCR.__table__)
+                .where(NCR.__table__.c.ref == bindparam("ref_param"))
+                .values({col: bindparam(col) for col in update_columns})
+            )
+
+            
+            result = await self.session.execute(update_stmt, update_payload)
+            await self.session.commit()
+
+            updated_rows = result.rowcount
+
+            execution_time = round(time.time() - start_time, 2)
+
+            logging.info("========== NCR EXCEL UPLOAD COMPLETED ==========")
+            logging.info(f"Updated Rows: {updated_rows}")
+
+
+            await send_email(
+                [user.email],
+                "ARe-Audit Management : Bulk NCR Update Completed",
+                {
+                    "user": user.name,
+                    "message": (
+                        f"<h3>Bulk NCR Update Summary</h3>"
+                        f"<p><strong>Total Rows:</strong> {total_rows}</p>"
+                        f"<p><strong>Processed Rows:</strong> {processed_rows}</p>"
+                        f"<p><strong>Updated Rows:</strong> {updated_rows}</p>"
+                        f"<p><strong>Skipped Rows:</strong> {skipped_rows}</p>"
+                        f"<p><strong>Failed Rows:</strong> {failed_rows}</p>"
+                        f"<p><strong>Execution Time:</strong> {execution_time} seconds</p>"
+                        f"<p><strong>Completed At:</strong> {datetime.now().strftime('%d %B %Y %H:%M:%S')}</p>"
+                    ),
+                    "frontend_url": settings.FRONTEND_URL,
+                },
+            )
+
+        except Exception as e:
+            logging.error("========== NCR EXCEL UPLOAD FAILED ==========")
+            logging.error(str(e))
+            logging.error(traceback.format_exc())
+
+            await send_email(
+                [user.email],
+                "NCR Excel Upload Failed",
+                {
+                    "user": user.email,
+                    "message": (
+                        f"<h3>NCR Excel Upload Failed</h3>"
+                        f"<p>Error: {str(e)}</p>"
+                    ),
+                    "frontend_url": settings.FRONTEND_URL,
+                },
+            )
+
+            return

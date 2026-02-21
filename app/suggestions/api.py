@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile
 
 from app.core.constants import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
 from app.core.schemas import ResponseStatus,Response
@@ -86,7 +86,7 @@ async def delete_suggestion(
         success=True,
     )
     
-@router.get("/export/all", response_model=List[SuggestionResponse])
+@router.get("/export/all", response_model=Response[List[SuggestionResponse]])
 async def export_all_suggestions(
     service: SuggestionService = Depends(get_suggestion_service),
     filters: Optional[str] = None,
@@ -136,3 +136,17 @@ async def delete_suggestion_team(
         data=data,
         success=True,
     )
+
+
+
+@router.post("/update/bulk",response_model=Response[Suggestion])
+
+async def upload_excel_in_background(
+        background_tasks: BackgroundTasks,
+    file : UploadFile = File(...),
+    user : User = Depends(authenticate),
+
+    service: SuggestionService = Depends(get_suggestion_service),
+   
+):    
+    return await service.upload_excel_in_background(background_tasks=background_tasks,file=await file.read(),    user_id=user.id)   

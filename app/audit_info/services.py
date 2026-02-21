@@ -211,7 +211,7 @@ class AuditInfoService:
                 background_tasks.add_task(
                     send_email,
                     [user.email],
-                    "Internal Audit: Audit Assigned",
+                    "ARe-Audit Management : Audit Assigned",
                     {
                         "user": user.name,
                         "message": (
@@ -237,7 +237,7 @@ class AuditInfoService:
                 background_tasks.add_task(
                     send_email,
                     [user.email],
-                    "Internal Audit: Audit Assigned",
+                    "ARe-Audit Management : Audit Assigned",
                     {
                         "user": user.name,
                         "message": (
@@ -622,7 +622,7 @@ class AuditInfoService:
             background_tasks.add_task(
                 send_email,
                 [user.email],
-                "Internal Audit: Audit Assigned",
+                "ARe-Audit Management : Audit Assigned",
                 {
                     "user": user.name,
                     "message": (
@@ -648,7 +648,7 @@ class AuditInfoService:
             background_tasks.add_task(
                 send_email,
                 [user.email],
-                "Internal Audit: Audit Assigned",
+                "ARe-Audit Management : Audit Assigned",
                 {
                     "user": user.name,
                     "message": (
