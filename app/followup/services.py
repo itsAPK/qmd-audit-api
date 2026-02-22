@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from fastapi import HTTPException, status
+from fastapi import BackgroundTasks, HTTPException, status
 from sqlalchemy import func, select
 from app.audit.models import Audit, AuditResponse
 from app.audit_info.models import (
@@ -10,7 +10,9 @@ from app.audit_info.models import (
     AuditInfoResponse,
     AuditTeam,
     AuditTeamResponse,
+    AuditTeamRole,
 )
+from app.core.mail import send_email
 from app.followup.models import (
     CreateFollowupRequest,
     Followup,
@@ -22,7 +24,7 @@ from app.followup.models import (
 from app.core.constants import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
-
+from app.core.config import settings
 from app.ncr.models import (
     NCR,
     DocumentReference,
@@ -34,7 +36,7 @@ from app.ncr.models import (
     NCRTeamRole,
 )
 from app.settings.models import Department, DepartmentResponse, Plant
-from app.users.models import UserResponse
+from app.users.models import User, UserResponse
 from app.utils.dsl_filter import apply_filters, apply_sort
 from app.utils.model_graph import ModelGraph
 from app.utils.serializer import to_naive
@@ -59,8 +61,20 @@ class FollowupService:
             ]
         )
 
-    async def create_followup(self, data: CreateFollowupRequest, user_id: UUID):
-        ncr = await self.session.execute(select(NCR).where(NCR.id == data.ncr_id))
+    async def create_followup(
+        self, data: CreateFollowupRequest, user_id: UUID, background_tasks
+    ):
+        ncr = await self.session.execute(
+            select(NCR)
+            .where(NCR.id == data.ncr_id)
+            .options(
+                selectinload(NCR.team).options(selectinload(NCRTeam.user)),
+                selectinload(NCR.audit_info).options(
+                    selectinload(AuditInfo.team).options(selectinload(AuditTeam.user)),
+                    selectinload(AuditInfo.department),
+                ),
+            )
+        )
         ncr = ncr.scalar_one_or_none()
         if not ncr:
             raise HTTPException(
@@ -73,7 +87,7 @@ class FollowupService:
                 },
             )
 
-        followup = Followup(
+        followup = Followup( 
             ncr_id=data.ncr_id,
             requested_by_id=user_id,
             requested_date=datetime.now(),
@@ -83,17 +97,92 @@ class FollowupService:
         ncr.status = NCRStatus.FOLLOWUP_REQUESTED
 
         await self.session.commit()
+        
+        hod = next(
+            (
+                team
+                for team in ncr.audit_info.team
+                if team.role == AuditTeamRole.HOD
+            ),
+            None,
+        )
+        
+        auditor = next(
+            (member for member in ncr.team if member.role == NCRTeamRole.CREATED_BY),
+            None,
+        )
+        
+        auditee = next(
+            (member for member in ncr.team if member.role == NCRTeamRole.AUDITEE), None
+        )
+        
+        background_tasks.add_task(
+            send_email,
+            [hod.user.email],
+            f"ARe-Audit Management : Followup Request for ({ncr.ref})",
+            {
+                "user": hod.user.name,
+                "message": (
+                    f"<p>This is to inform you that an Followup Request has been requested for the non – conformity {ncr.ref}.</p>"
+                    f"<p><strong>Internal audit Ref. No:</strong> {ncr.audit_info.ref}</p>"
+                    f"<p><strong>NCR Ref. No:</strong> {ncr.ref}</p>"
+                    f"<p><strong>Audit Date:</strong> {ncr.created_at.strftime('%d %B %Y')}</p>"
+                    f"<p><strong>Department:</strong> {ncr.audit_info.department.name}</p>"
+                    f"<p><strong>Auditor:</strong> {auditor.user.name}</p>"
+                    f"<p><strong>Auditee:</strong> {auditee.user.name}</p>"
+                    f"<p><strong>Non-Conformity Description:</strong> {ncr.description}</p>"
+                    f"<p><strong>Corrective Action:</strong> {ncr.corrective_action_details}</p>"
+                    f"<p>Kindly review the above and assign the Followup Request to the appropriate auditor.</p>"
+                ),
+                "frontend_url": settings.FRONTEND_URL,
+            },
+        )
+      
+
         return followup
 
-    async def update_followup(self, followup_id: UUID, data: UpdateFollowupRequest):
+    async def update_followup(self, followup_id: UUID, data: UpdateFollowupRequest,user_id: UUID, background_tasks : BackgroundTasks):
         followup = await self.session.execute(
             select(Followup).where(Followup.id == followup_id)
         )
         followup = followup.scalar_one_or_none()
 
-        ncr = await self.session.execute(select(NCR).where(NCR.id == followup.ncr_id))
+        ncr = await self.session.execute(
+    select(NCR)
+    .where(NCR.id == followup.ncr_id)
+    .options(
+        # Load audit_info → team → user
+        selectinload(NCR.audit_info).options(
+            selectinload(AuditInfo.department),
+        selectinload(AuditInfo.team)
+        .selectinload(AuditTeam.user)),
+
+        # Load ncr team → user
+        selectinload(NCR.team)
+        .selectinload(NCRTeam.user),
+    )
+)
+
 
         ncr = ncr.scalar_one_or_none()
+        
+        auditor = next(
+            (member for member in ncr.team if member.role == NCRTeamRole.CREATED_BY),
+            None,
+        )
+        
+        auditee = next(
+            (member for member in ncr.team if member.role == NCRTeamRole.AUDITEE), None
+        )
+        
+        hod = next(
+            (
+                team
+                for team in ncr.audit_info.team
+                if team.role == AuditTeamRole.HOD
+            ),
+            None,
+        )
 
         if not followup:
             raise HTTPException(
@@ -106,11 +195,13 @@ class FollowupService:
                 },
             )
         if data.auditor_id:
+            followup_auditor = await self.session.execute(select(User).where(User.id == data.auditor_id))
+            followup_auditor = followup_auditor.scalar_one_or_none()
             followup.auditor_id = data.auditor_id
             followup.status = FollowupStatus.ASSIGNED
             ncr.status = NCRStatus.FOLLOW_ASSIGNED
             followup.assgined_on = datetime.now()
-            
+
             update_ncr_team = NCRTeam(
                 user_id=data.auditor_id,
                 role=NCRTeamRole.FOLLOWUP_AUDITOR,
@@ -118,6 +209,51 @@ class FollowupService:
             )
             self.session.add(update_ncr_team)
             await self.session.commit()
+            
+            if(user_id == hod.user.id):
+                background_tasks.add_task(
+                    send_email,
+                    [followup_auditor.email],
+                    f"ARe-Audit Management : Followup Assigned for ({ncr.ref})",
+                    {
+                        "user": followup_auditor.name,
+                        "message": (
+                            f"<p>This is to inform you that you have been assigned as internal auditor to conduct the follow-up audit for the ncr {ncr.ref}.</p>"
+                            f"<p><strong>Internal audit Ref. No:</strong> {ncr.audit_info.ref}</p>"
+                            f"<p><strong>NCR Ref. No:</strong> {ncr.ref}</p>"
+                            f"<p><strong>Audit Date:</strong> {ncr.created_at.strftime('%d %B %Y')}</p>"
+                            f"<p><strong>Auditor:</strong> {auditor.user.name}</p>"
+                            f"<p><strong>Auditee:</strong> {auditee.user.name}</p>"
+                            f"<p><strong>Non-Conformity Description:</strong> {ncr.description}</p>"
+                            f"<p><strong>Corrective Action:</strong> {ncr.corrective_action_details}</p>"
+                            f"<p>For any clarification or support, please feel free to contact the QMS department.</p>"
+                        ),
+                        "frontend_url": settings.FRONTEND_URL,
+                    },
+                    
+                )
+                
+                
+                background_tasks.add_task(
+                    send_email,
+                    [auditee.user.email],
+                    f"ARe-Audit Management : Followup Auditor Assigned for ({ncr.ref})",
+                    {
+                        "user": auditee.user.name,
+                        "message": (
+                            f"<p>This is to inform you that followup auditor has been  the to the ncr {ncr.ref}.</p>"
+                            f"<p><strong>Internal audit Ref. No:</strong> {ncr.audit_info.ref}</p>"
+                            f"<p><strong>NCR Ref. No:</strong> {ncr.ref}</p>"
+                            f"<p><strong>Audit Date:</strong> {ncr.created_at.strftime('%d %B %Y')}</p>"
+                            f"<p><strong>Auditor:</strong> {auditor.user.name}</p>"
+                            f"<p><strong>Followup Auditor:</strong> {followup_auditor.name}</p>"
+                            f"<p><strong>Non-Conformity Description:</strong> {ncr.description}</p>"
+                            f"<p><strong>Corrective Action:</strong> {ncr.corrective_action_details}</p>"
+                        ),
+                        "frontend_url": settings.FRONTEND_URL,
+                    },
+                    
+                )
 
         if data.observations:
             followup.observations = data.observations
@@ -127,6 +263,30 @@ class FollowupService:
             ncr.actual_date_of_completion = datetime.now()
             ncr.status = NCRStatus.FOLLOW_COMPLETED
             ncr.followup_date = to_naive(datetime.now())
+            
+            if(user_id == followup.auditor_id):
+                background_tasks.add_task(
+                    send_email,
+                    [hod.user.email],
+                    f"ARe-Audit Management : Followup Completed for ({ncr.ref})",
+                    {
+                        "user": hod.user.name,
+                        "message": (
+                            f"<p>This is to inform you that the Followup Request for the non – conformity {ncr.ref} has been completed.</p>"
+                            f"<p><strong>Internal audit Ref. No:</strong> {ncr.audit_info.ref}</p>"
+                            f"<p><strong>NCR Ref. No:</strong> {ncr.ref}</p>"
+                            f"<p><strong>Audit Date:</strong> {ncr.created_at.strftime('%d %B %Y')}</p>"
+                            f"<p><strong>Department:</strong> {ncr.audit_info.department.name}</p>"
+                            f"<p><strong>Auditor:</strong> {auditor.user.name}</p>"
+                            f"<p><strong>Auditee:</strong> {auditee.user.name}</p>"
+                            f"<p><strong>Non-Conformity Description:</strong> {ncr.description}</p>"
+                            f"<p><strong>Corrective Action:</strong> {ncr.corrective_action_details}</p>"
+                            f"<p><strong>Followup Observations:</strong> {followup.observations}</p>"
+                        ),
+                        "frontend_url": settings.FRONTEND_URL,
+                    },
+                )
+    
 
         if data.completed_on:
             followup.completed_on = to_naive(data.completed_on)
@@ -266,11 +426,11 @@ class FollowupService:
         )
 
         return response
+
     async def export_all_followups(
         self,
         filters: Optional[str] = None,
         sort: Optional[str] = "created_at.desc",
-    
     ):
         stmt = select(Followup).options(
             selectinload(Followup.ncr).options(
@@ -289,104 +449,100 @@ class FollowupService:
         if sort:
             stmt = apply_sort(stmt, sort, Followup, self.graph)
 
-     
-
-      
         result = await self.session.execute(stmt)
         followups = result.scalars().all()
 
-        response =[
-                FollowupResponse(
-                    id=followup.id,
-                    requested_date=followup.requested_date,
-                    status=followup.status,
-                    ncr_id=followup.ncr_id,
-                    auditor_id=followup.auditor_id,
-                    observations=followup.observations,
-                    auditor=(
-                        UserResponse(
-                            id=followup.auditor.id,
-                            employee_id=followup.auditor.employee_id,
-                            name=followup.auditor.name,
-                        )
-                        if followup.auditor
-                        else None
-                    ),
-                    requested_by_id=followup.requested_by_id,
-                    assgined_on=followup.assgined_on,
-                    completed_on=followup.completed_on,
-                    requested_by=UserResponse(
-                        id=followup.requested_by.id,
-                        employee_id=followup.requested_by.employee_id,
-                        name=followup.requested_by.name,
-                    ),
-                    ncr=NCRResponse(
-                        id=followup.ncr_id,
-                        ref=followup.ncr.ref,
-                        repeat=followup.ncr.repeat,
-                        status=followup.ncr.status,
-                        mode=followup.ncr.mode,
-                        shift=followup.ncr.shift,
-                        type=followup.ncr.type,
-                        audit_info_id=followup.ncr.audit_info_id,
-                        description=followup.ncr.description,
-                        objective_evidence=followup.ncr.objective_evidence,
-                        requirement=followup.ncr.requirement,
-                        main_clause=followup.ncr.main_clause,
-                        sub_clause=followup.ncr.sub_clause,
-                        ss_clause=followup.ncr.ss_clause,
-                        correction=followup.ncr.correction,
-                        root_cause=followup.ncr.root_cause,
-                        systematic_corrective_action=followup.ncr.systematic_corrective_action,
-                        corrective_action_details=followup.ncr.corrective_action_details,
-                        expected_date_of_completion=followup.ncr.expected_date_of_completion,
-                        actual_date_of_completion=followup.ncr.actual_date_of_completion,
-                        edc_given_date=followup.ncr.edc_given_date,
-                        remarks=followup.ncr.remarks,
-                        followup_observations=followup.ncr.followup_observations,
-                        followup_date=followup.ncr.followup_date,
-                        rejected_reson=followup.ncr.rejected_reson,
-                        rejected_count=followup.ncr.rejected_count,
-                        closed_on=followup.ncr.closed_on,
-                        files=[],
-                        document_references=[],
-                        team=[
-                            NCRTeamResponse(
-                                id=ncr_team.id,
-                                user_id=ncr_team.user_id,
-                                role=ncr_team.role,
-                                ncr_id=ncr_team.ncr_id,
-                                user=UserResponse(
-                                    id=ncr_team.user.id,
-                                    employee_id=ncr_team.user.employee_id,
-                                    name=ncr_team.user.name,
-                                ),
-                            )
-                            for ncr_team in followup.ncr.team
-                        ],
-                        audit_info=AuditInfoResponse(
-                            id=followup.ncr.audit_info_id,
-                            ref=followup.ncr.audit_info.ref,
-                            department_id=followup.ncr.audit_info.department_id,
-                            department=DepartmentResponse(
-                                id=followup.ncr.audit_info.department.id,
-                                name=followup.ncr.audit_info.department.name,
-                                code=followup.ncr.audit_info.department.code,
-                                created_at=followup.ncr.audit_info.department.created_at,
-                                updated_at=followup.ncr.audit_info.department.updated_at,
-                                slug=followup.ncr.audit_info.department.slug,
+        response = [
+            FollowupResponse(
+                id=followup.id,
+                requested_date=followup.requested_date,
+                status=followup.status,
+                ncr_id=followup.ncr_id,
+                auditor_id=followup.auditor_id,
+                observations=followup.observations,
+                auditor=(
+                    UserResponse(
+                        id=followup.auditor.id,
+                        employee_id=followup.auditor.employee_id,
+                        name=followup.auditor.name,
+                    )
+                    if followup.auditor
+                    else None
+                ),
+                requested_by_id=followup.requested_by_id,
+                assgined_on=followup.assgined_on,
+                completed_on=followup.completed_on,
+                requested_by=UserResponse(
+                    id=followup.requested_by.id,
+                    employee_id=followup.requested_by.employee_id,
+                    name=followup.requested_by.name,
+                ),
+                ncr=NCRResponse(
+                    id=followup.ncr_id,
+                    ref=followup.ncr.ref,
+                    repeat=followup.ncr.repeat,
+                    status=followup.ncr.status,
+                    mode=followup.ncr.mode,
+                    shift=followup.ncr.shift,
+                    type=followup.ncr.type,
+                    audit_info_id=followup.ncr.audit_info_id,
+                    description=followup.ncr.description,
+                    objective_evidence=followup.ncr.objective_evidence,
+                    requirement=followup.ncr.requirement,
+                    main_clause=followup.ncr.main_clause,
+                    sub_clause=followup.ncr.sub_clause,
+                    ss_clause=followup.ncr.ss_clause,
+                    correction=followup.ncr.correction,
+                    root_cause=followup.ncr.root_cause,
+                    systematic_corrective_action=followup.ncr.systematic_corrective_action,
+                    corrective_action_details=followup.ncr.corrective_action_details,
+                    expected_date_of_completion=followup.ncr.expected_date_of_completion,
+                    actual_date_of_completion=followup.ncr.actual_date_of_completion,
+                    edc_given_date=followup.ncr.edc_given_date,
+                    remarks=followup.ncr.remarks,
+                    followup_observations=followup.ncr.followup_observations,
+                    followup_date=followup.ncr.followup_date,
+                    rejected_reson=followup.ncr.rejected_reson,
+                    rejected_count=followup.ncr.rejected_count,
+                    closed_on=followup.ncr.closed_on,
+                    files=[],
+                    document_references=[],
+                    team=[
+                        NCRTeamResponse(
+                            id=ncr_team.id,
+                            user_id=ncr_team.user_id,
+                            role=ncr_team.role,
+                            ncr_id=ncr_team.ncr_id,
+                            user=UserResponse(
+                                id=ncr_team.user.id,
+                                employee_id=ncr_team.user.employee_id,
+                                name=ncr_team.user.name,
                             ),
-                            from_date=followup.ncr.audit_info.from_date,
-                            to_date=followup.ncr.audit_info.to_date,
-                            closed_date=followup.ncr.audit_info.closed_date,
-                            status=followup.ncr.audit_info.status,
+                        )
+                        for ncr_team in followup.ncr.team
+                    ],
+                    audit_info=AuditInfoResponse(
+                        id=followup.ncr.audit_info_id,
+                        ref=followup.ncr.audit_info.ref,
+                        department_id=followup.ncr.audit_info.department_id,
+                        department=DepartmentResponse(
+                            id=followup.ncr.audit_info.department.id,
+                            name=followup.ncr.audit_info.department.name,
+                            code=followup.ncr.audit_info.department.code,
+                            created_at=followup.ncr.audit_info.department.created_at,
+                            updated_at=followup.ncr.audit_info.department.updated_at,
+                            slug=followup.ncr.audit_info.department.slug,
                         ),
+                        from_date=followup.ncr.audit_info.from_date,
+                        to_date=followup.ncr.audit_info.to_date,
+                        closed_date=followup.ncr.audit_info.closed_date,
+                        status=followup.ncr.audit_info.status,
                     ),
-                    created_at=followup.created_at,
-                )
-                for followup in followups
-            ]
-        
+                ),
+                created_at=followup.created_at,
+            )
+            for followup in followups
+        ]
 
         return response
 

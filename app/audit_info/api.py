@@ -33,9 +33,10 @@ async def create_audit_info(
     data: AuditInfoRequest,
     background_tasks: BackgroundTasks,
     audit_info_service: AuditInfoService = Depends(get_audit_info_service),
+    user: User = Depends(authenticate),
 
 ):
-    audit_info = await audit_info_service.create_audit_info(data, background_tasks)
+    audit_info = await audit_info_service.create_audit_info(data, background_tasks, user.id)
     return Response(
         message="Audit info created successfully",
         status=ResponseStatus.SUCCESS,
@@ -100,9 +101,12 @@ async def get_audit_info_by_id(
 async def update_audit_info(
     audit_info_id: UUID,
     data: AuditInfoUpdateRequest,
+        background_tasks: BackgroundTasks,
+
     audit_info_service: AuditInfoService = Depends(get_audit_info_service),
+    user: User = Depends(authenticate),
 ):
-    audit_info = await audit_info_service.update_audit_info(audit_info_id, data)
+    audit_info = await audit_info_service.update_audit_info(audit_info_id, data, user.id, background_tasks)
     return Response(
         message="Audit info updated successfully",
         status=ResponseStatus.SUCCESS,

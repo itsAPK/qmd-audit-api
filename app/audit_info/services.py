@@ -17,12 +17,13 @@ from app.audit_info.models import (
 )
 from app.core.constants import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
 from app.core.mail import send_email
-from app.ncr.models import NCRStatus
+from app.ncr.models import NCR, NCRStatus
 from app.settings.links import Department
 from app.settings.models import Company, DepartmentResponse, Plant
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
+from app.suggestions.models import Suggestion
 from app.utils.dsl_filter import apply_filters, apply_sort
 from app.utils.model_graph import ModelGraph
 
@@ -48,7 +49,7 @@ class AuditInfoService:
         return result
 
     async def create_audit_info(
-        self, data: AuditInfoRequest, background_tasks: BackgroundTasks
+        self, data: AuditInfoRequest, background_tasks: BackgroundTasks,user_id: UUID
     ):
 
         audit = await self.session.execute(
@@ -252,6 +253,14 @@ class AuditInfoService:
                         "frontend_url": settings.FRONTEND_URL,
                     },
                 )
+                
+        add_hod = AuditTeam(
+            user_id=user_id,
+            role=AuditTeamRole.HOD,
+            audit_info_id=add_audit_info.id,
+        )
+        self.session.add(add_hod)
+        await self.session.commit()
 
 
         return add_audit_info
@@ -410,11 +419,32 @@ class AuditInfoService:
         )
 
     async def update_audit_info(
-        self, audit_info_id: UUID, data: AuditInfoUpdateRequest
+        self, audit_info_id: UUID, data: AuditInfoUpdateRequest, user_id: UUID, background_tasks: BackgroundTasks
     ):
         val = data.model_dump(exclude_unset=True)
+        ncr_count_subq = await self.session.execute(
+            select(func.count(NCR.id))
+            .where(NCR.audit_info_id == AuditInfo.id)
+            
+        )
+        
+        ncr_count = ncr_count_subq.scalar()
+        
+        suggestion_count_subq = await self.session.execute(
+            select(func.count(Suggestion.id))
+            .where(Suggestion.audit_info_id == AuditInfo.id)
+           
+        )
+        suggestion_count = suggestion_count_subq.scalar()
+   
+        
+
         audit_info = await self.session.execute(
-            select(AuditInfo).where(AuditInfo.id == audit_info_id)
+            select(AuditInfo).where(AuditInfo.id == audit_info_id).options(
+                selectinload(AuditInfo.team).options(selectinload(AuditTeam.user)),
+                selectinload(AuditInfo.department),
+              
+            )
         )
         audit_info = audit_info.scalar_one_or_none()
 
@@ -428,7 +458,27 @@ class AuditInfoService:
                     "data": None,
                 },
             )
-        print(val)
+            
+        hod = next(
+            (
+                team
+                for team in audit_info.team
+                if team.role == AuditTeamRole.HOD
+            ),
+            None,
+        )
+        
+        
+        auditor = next(
+            (member for member in audit_info.team if member.role == AuditTeamRole.AUDITOR),
+            None,
+        )
+        
+        auditee = next(
+            (member for member in audit_info.team if member.role == AuditTeamRole.AUDITEE),
+            None,
+        )
+      
         if "from_date" in val:
             audit_info.from_date = to_naive(val["from_date"])
 
@@ -438,6 +488,27 @@ class AuditInfoService:
         if "closed_date" in val:
             audit_info.closed_date = to_naive(val["closed_date"])
             audit_info.status = "CLOSED"
+            if(user_id == auditor.user.id):
+                background_tasks.add_task(
+                    send_email,
+                    [hod.user.email],
+                    f"ARe-Audit Management : Internal Audit Closed - {audit_info.ref}",
+                    {
+                        "user": hod.user.name,
+                        "message": (
+                            f"<p>This is to inform you that the auditor has completed the internal audit {audit_info.ref} and closed the same in the AReAMS system.</p>"
+                            f"<p><strong>Internal audit Ref. No:</strong> {audit_info.ref}</p>"
+                            f"<p><strong>Audit Date:</strong> {audit_info.from_date.strftime('%d %B %Y')} to {audit_info.to_date.strftime('%d %B %Y')}</p>"
+                            f"<p><strong>Department:</strong> {audit_info.department.name}</p>"
+                            f"<p><strong>Auditor:</strong> {auditor.user.name}</p>"
+                            f"<p><strong>Auditee:</strong> {auditee.user.name}</p>"
+                            f"<p><strong>No. of NCRs:</strong> {ncr_count}</p>"
+                            f"<p><strong>No. of Suggestions:</strong> {suggestion_count}</p>"
+                            f"<p>For any clarification or support, please feel free to contact the QMS department.</p>"
+                        ),
+                        "frontend_url": settings.FRONTEND_URL,
+                    },
+                )
         await self.session.commit()
         return audit_info
 

@@ -1,6 +1,6 @@
 from typing import Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from app.core.constants import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
 from app.core.schemas import Response, ResponseStatus
 from app.edc_request.models import (
@@ -21,10 +21,12 @@ router = APIRouter()
 @router.post("", response_model=Response[EdcRequest])
 async def create_edc_request(
     data: CreateEdcRequestRequest,
+background_tasks: BackgroundTasks,
     edc_request_service: EdcRequestService = Depends(get_edc_request_service),
     user: User = Depends(authenticate),
+    
 ):
-    edc_request = await edc_request_service.create_edc_request(data, user.id)
+    edc_request = await edc_request_service.create_edc_request(data, user.id, background_tasks)
     return Response(
         message="Edc request created successfully",
         status=ResponseStatus.SUCCESS,
@@ -71,10 +73,11 @@ async def get_edc_request(
 @router.patch("/{edc_request_id}", response_model=Response[EdcRequest])
 async def update_edc_request(
     edc_request_id: UUID,
+    background_tasks: BackgroundTasks,
     data: UpdateEDCRequestRequest,
     edc_request_service: EdcRequestService = Depends(get_edc_request_service),
 ):
-    edc_request = await edc_request_service.update_edc_request(edc_request_id, data)
+    edc_request = await edc_request_service.update_edc_request(edc_request_id, data, background_tasks)
     return Response(
         message="Edc request updated successfully",
         status=ResponseStatus.SUCCESS,

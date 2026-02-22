@@ -6,7 +6,7 @@ from fastapi import BackgroundTasks, HTTPException, status
 import pandas as pd
 from sqlalchemy import bindparam, func, select, update
 from app.audit.models import Audit
-from app.audit_info.models import AuditInfo, AuditTeam
+from app.audit_info.models import AuditInfo, AuditTeam, AuditTeamRole
 from app.core.mail import send_email
 from app.core.schemas import Response, ResponseStatus
 from app.settings.models import Department, Plant
@@ -60,12 +60,12 @@ class SuggestionService:
             ]
         )
 
-    async def create_suggestion(self, data: SuggestionCreateRequest, user_id: UUID):
+    async def create_suggestion(self, data: SuggestionCreateRequest, user_id: UUID,background_tasks: BackgroundTasks):
         audit_info = await self.session.execute(
             select(AuditInfo)
             .where(AuditInfo.id == data.audit_info_id)
             .options(selectinload(AuditInfo.department))
-            .options(selectinload(AuditInfo.team))
+            .options(selectinload(AuditInfo.team).options(selectinload(AuditTeam.user)))
         )
         audit_info = audit_info.scalar_one_or_none()
         if not audit_info:
@@ -116,14 +116,44 @@ class SuggestionService:
 
         self.session.add(auditee)
         await self.session.commit()
+        
+        user = await self.session.execute(select(User).where(User.id == user_id))
+        user = user.scalar_one_or_none()
+        
+        background_tasks.add_task(
+            send_email,
+            [auditee_member.user.email],
+            f"ARe-Audit Management : Suggestion Raised {suggestion.ref} by {user.name}",
+            {
+                "user": auditee_member.user.name,
+                "message": (
+                    f"<p>This is to inform you that a <strong>Suggestion ({suggestion.ref})</strong> has been raised for your department during the recent QMS Internal Audit.</p>"
+                    f"<p><strong>Internal Audit Reference No.:</strong> {audit_info.ref}</p>"
+                    f"<p><strong>Audit Date:</strong> {datetime.now().strftime('%d %B %Y')}</p>"
+                    f"<p><strong>Suggestion:</strong> {data.suggestion}</p>"
+                    f"<p><strong>Note:</strong></p>"
+                    f"<ul>"
+                    f"<li>Kindly update the EDC, corrective_action in AReAMS within the specified timeline.</li>"
+                    f"</ul>"
+                    f"<p>For any clarification or support, please feel free to contact the QMS Department.</p>"
+                ),
+                "frontend_url": settings.FRONTEND_URL,
+            },
+        )
 
         return suggestion
 
     async def update_suggestion(
-        self, suggestion_id: UUID, data: SuggestionUpdateRequest
+        self, suggestion_id: UUID, data: SuggestionUpdateRequest, user_id: UUID, background_tasks: BackgroundTasks
     ):
         suggestion = await self.session.execute(
-            select(Suggestion).where(Suggestion.id == suggestion_id)
+            select(Suggestion).where(Suggestion.id == suggestion_id).options(
+                selectinload(Suggestion.team).options(selectinload(SuggestionTeam.user)),
+                selectinload(Suggestion.audit_info).options(
+                    selectinload(AuditInfo.department),
+                    selectinload(AuditInfo.team).options(selectinload(AuditTeam.user)),
+                ),
+            )
         )
         suggestion = suggestion.scalar_one_or_none()
         if not suggestion:
@@ -136,12 +166,33 @@ class SuggestionService:
                     "data": None,
                 },
             )
+        hod = next(
+            (
+                team
+                for team in suggestion.audit_info.team
+                if team.role == AuditTeamRole.HOD
+            ),
+            None,
+        )
+        
+        auditee = next(
+            (member for member in suggestion.audit_info.team if member.role == AuditTeamRole.AUDITEE),
+            None,
+        )
+        
+        auditor = next(
+            (member for member in suggestion.team if member.role == SuggestionTeamRole.CREATED_BY),
+            None,
+        )
+        
+        
         if data.audit_info_id:
             audit_info = await self.session.execute(
                 select(AuditInfo)
                 .where(AuditInfo.id == data.audit_info_id)
-                .options(selectinload(AuditInfo.department))
-            )
+                .options(selectinload(AuditInfo.department), selectinload(AuditInfo.team).options(selectinload(AuditTeam.user)))
+            
+                )
             audit_info = audit_info.scalar_one_or_none()
             if not audit_info:
                 raise HTTPException(
@@ -163,10 +214,80 @@ class SuggestionService:
 
             if data.status == SuggestionStatus.CLOSED:
                 suggestion.actual_date_of_completion = to_naive(datetime.now())
+                
+                if (user_id == hod.user.id):
+                    background_tasks.add_task(
+                        send_email,
+                        [auditor.user.email],
+                        f"ARe-Audit Management : Suggestion Closed {suggestion.ref}",
+                        {
+                            "user": auditor.user.name,
+                            "message": (
+                                f"<p>This is to inform you that a <strong>Suggestion ({suggestion.ref})</strong> has been closed.</p>"
+                                f"<p><strong>Internal Audit Reference No.:</strong> {suggestion.audit_info.ref}</p>"
+                                f"<p><strong>Audit Date:</strong> {datetime.now().strftime('%d %B %Y')}</p>"
+                                f"<p><strong>Suggestion:</strong> {suggestion.suggestion}</p>"
+                                f"<p><strong>Corrective Action:</strong> {suggestion.corrective_action}</p>"
+                                f"<p><strong>Note:</strong></p>"
+                                f"<ul>"
+                                f"<li>Kindly update the EDC, corrective_action in AReAMS within the specified timeline.</li>"
+                                f"</ul>"
+                                f"<p>For any clarification or support, please feel free to contact the QMS Department.</p>"
+                            ),
+                            "frontend_url": settings.FRONTEND_URL
+                        },
+                    )
+                    
+                    background_tasks.add_task(
+                        send_email,
+                        [auditee.user.email],
+                        f"ARe-Audit Management : Suggestion Closed - {suggestion.ref}",
+                        {
+                            "user": auditee.user.name,
+                            "message": (
+                                f"<p>This is to inform you that a <strong>Suggestion ({suggestion.ref})</strong> has been closed.</p>"
+                                f"<p><strong>Internal Audit Reference No.:</strong> {suggestion.audit_info.ref}</p>"
+                                f"<p><strong>Audit Date:</strong> {datetime.now().strftime('%d %B %Y')}</p>"
+                                f"<p><strong>Suggestion:</strong> {suggestion.suggestion}</p>"
+                                f"<p><strong>Corrective Action:</strong> {suggestion.corrective_action}</p>"
+                                f"<p><strong>Note:</strong></p>"
+                                f"<ul>"
+                                f"<li>Kindly update the EDC, corrective_action in AReAMS within the specified timeline.</li>"
+                                f"</ul>"
+                                f"<p>For any clarification or support, please feel free to contact the QMS Department.</p>"
+                            ),
+                            "frontend_url": settings.FRONTEND_URL
+                        },
+                    )
             suggestion.status = data.status
+            
+            
 
         if data.expected_date_of_completion:
             suggestion.expected_date_of_completion = to_naive(data.expected_date_of_completion)
+            
+            background_tasks.add_task(
+                send_email,
+                [hod.user.email],
+                f"ARe-Audit Management : EDC Updated for Suggestion {suggestion.ref}",
+                {
+                    "user": hod.user.name,
+                    "message": (
+                        f"<p>This is to inform you that the Expected Date of Completion for the suggestion {suggestion.ref} has been updated.</p>"
+                        f"<p><strong>Internal Audit Reference No.:</strong> {suggestion.audit_info.ref}</p>"
+                        f"<p><strong>Audit Date:</strong> {datetime.now().strftime('%d %B %Y')}</p>"
+                        f"<p><strong>Department:</strong> {suggestion.audit_info.department.name}</p>"
+                        f"<p><strong>Suggestion:</strong> {suggestion.suggestion}</p>"
+                        f"<p><strong>Corrective Action:</strong> {suggestion.corrective_action}</p>"
+                        f"<p><strong>Note:</strong></p>"
+                        f"<ul>"
+                        f"<li>Kindly review and approve or reject the suggestion in AReAMS within the specified timeline.</li>"
+                        f"</ul>"
+                        f"<p>For any clarification or support, please feel free to contact the QMS Department.</p>"
+                    ),
+                    "frontend_url": settings.FRONTEND_URL
+                },
+            )
         if data.actual_date_of_completion:
             suggestion.actual_date_of_completion = to_naive(data.actual_date_of_completion)
         await self.session.commit()

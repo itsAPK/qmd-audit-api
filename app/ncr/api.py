@@ -101,9 +101,11 @@ async def get_ncr(
 async def update_ncr(
     ncr_id: UUID,
     data: NCRUpdateRequest,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(authenticate),
     ncr_service: NCRService = Depends(get_ncr_service),
 ):
-    ncr = await ncr_service.update_ncr(ncr_id, data)
+    ncr = await ncr_service.update_ncr(ncr_id, data, user.id, background_tasks)
     return Response(
         message="NCR updated successfully",
         status=ResponseStatus.SUCCESS,

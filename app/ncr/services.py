@@ -11,6 +11,7 @@ from app.audit_info.models import (
     AuditInfoResponse,
     AuditTeam,
     AuditTeamResponse,
+    AuditTeamRole,
 )
 import pandas as pd
 from sqlalchemy import update, bindparam
@@ -226,10 +227,26 @@ class NCRService:
 
         return ncr_new
 
-    async def update_ncr(self, ncr_id: UUID, data: NCRUpdateRequest):
+    async def update_ncr(
+        self,
+        ncr_id: UUID,
+        data: NCRUpdateRequest,
+        user_id: UUID,
+        background_tasks: BackgroundTasks,
+    ):
         ncr = await self.session.execute(
-            select(NCR).where(NCR.id == ncr_id).options(selectinload(NCR.audit_info))
-        )
+    select(NCR)
+    .where(NCR.id == ncr_id)
+    .options(
+        selectinload(NCR.audit_info)
+        .selectinload(AuditInfo.team)
+        .selectinload(AuditTeam.user),
+
+        selectinload(NCR.team)
+        .selectinload(NCRTeam.user),
+    )
+)
+
         ncr = ncr.scalar_one_or_none()
         if not ncr:
             raise HTTPException(
@@ -240,6 +257,27 @@ class NCRService:
                     "status": status.HTTP_404_NOT_FOUND,
                     "data": None,
                 },
+            )
+        auditee = next(
+                (member for member in ncr.team if member.role == NCRTeamRole.AUDITEE),
+                None,
+            )
+        auditor = next(
+                (
+                    member
+                    for member in ncr.team
+                    if member.role == NCRTeamRole.CREATED_BY
+                ),
+                None,
+            )
+
+        hod = next(
+                (
+                    member
+                    for member in ncr.audit_info.team
+                    if member.role == AuditTeamRole.HOD
+                ),
+                None,
             )
         if data.auditee_id:
             auditee = await self.session.execute(
@@ -269,9 +307,55 @@ class NCRService:
         if data.status:
             if data.status == NCRStatus.REJECTED:
                 ncr.rejected_count = ncr.rejected_count + 1
+                
+                background_tasks.add_task(
+                send_email,
+                [auditee.user.email],
+                f"Non-Conformity Rejects {ncr.ref}",
+                {
+                    "user": auditee.user.name,
+                    "message": (
+                        f"<p>This is to inform you that a <strong>Non-Conformity (NCR) {ncr.ref}</strong> has been rejected.</p>"
+                        f"<p><strong>Internal Audit Reference No.:</strong> {ncr.audit_info.ref}</p>"
+                        f"<p><strong>Audit Date:</strong> {datetime.now().strftime('%d %B %Y')}</p>"
+                        f"<p><strong>Auditor:</strong> {auditor.user.name}</p>"
+                        f"<p><strong>Auditee:</strong> {auditee.user.name}</p>"
+                        f"<p><strong>Non-Conformity Description:</strong> {data.description}</p>"
+                        f"<p><strong>Corrective Action Details:</strong> {data.corrective_action_details}</p>"
+                        f"<p><strong>Reason for Rejection:</strong> {data.rejected_reson}</p>"
+                        f"<p><strong>Note:</strong></p>"
+                        f"<ul>"
+                        f"<li>Kindly re-submit the EDC, correction, root cause, systemic corrective action, horizontal deployment, ADC, etc., in AReAMS within the specified timeline.</li>"
+                        f"</ul>"
+                        f"<p>For any clarification or support, please feel free to contact the QMS Department.</p>"
+                    ),
+                    "frontend_url": settings.FRONTEND_URL,
+                },
+            )
 
             if data.status == NCRStatus.CLOSED:
                 ncr.closed_on = datetime.now()
+                
+                background_tasks.add_task(
+                send_email,
+                [auditee.user.email],
+                f"Non-Conformity Closed {ncr.ref}",
+                {
+                    "user": auditee.user.name,
+                    "message": (
+                        f"<p>This is to inform you that a <strong>Non-Conformity (NCR) {ncr.ref}</strong> has been closed.</p>"
+                        f"<p><strong>Internal Audit Reference No.:</strong> {ncr.audit_info.ref}</p>"
+                        f"<p><strong>Audit Date:</strong> {datetime.now().strftime('%d %B %Y')}</p>"
+                        f"<p><strong>Auditor:</strong> {auditor.user.name}</p>"
+                        f"<p><strong>Auditee:</strong> {auditee.user.name}</p>"
+                        f"<p><strong>Non-Conformity Description:</strong> {ncr.description}</p>"
+                        f"<p><strong>Corrective Action Details:</strong> {ncr.corrective_action_details}</p>"
+                        f"<p><strong>HOD Remarks:</strong> {ncr.remarks if ncr.remarks else data.remarks}</p>"
+                       
+                    ),
+                    "frontend_url": settings.FRONTEND_URL,
+                },
+            )
 
             if data.status == NCRStatus.FOLLOW_COMPLETED:
                 ncr.actual_date_of_completion = datetime.now()
@@ -319,9 +403,55 @@ class NCRService:
             ncr.corrective_action_details = data.corrective_action_details
 
         if data.expected_date_of_completion:
+           
 
             ncr.expected_date_of_completion = to_naive(data.expected_date_of_completion)
             ncr.edc_given_date = to_naive(data.expected_date_of_completion)
+
+            if auditee.user.id == user_id:
+                background_tasks.add_task(
+                    send_email,
+                    [hod.user.email],
+                    f"EDC Submitted for {ncr.ref}",
+                    {
+                        "user": hod.user.name,
+                        "message": (
+                            f"<p>This is to inform you that an EDC submitted for the non – conformity {ncr.ref}.</p>"         
+                            f"<p><strong>Internal Audit Reference No.:</strong> {ncr.audit_info.ref}</p>"
+                            f"<p><strong>Non-Conformity Reference No.:</strong> {ncr.ref}</p>"
+                            f"<p><strong>Audit Date:</strong> {datetime.now().strftime('%d %B %Y')}</p>"
+                            f"<p><strong>Non-Conformity Description:</strong> {ncr.description}</p>"
+                            f"<p><strong>Auditor:</strong> {auditor.user.name}</p>"
+                            f"<p><strong>Auditee:</strong> {auditee.user.name}</p>"
+                            f"<p><strong>EDC:</strong> {data.expected_date_of_completion}</p>"
+                            f"<p><strong>Note:</strong></p>"
+                            f"<ul>"
+                            f"<li>Kindly review the above and provide your confirmation for the EDC.</li>"
+                            f"</ul>"
+                        ),
+                        "frontend_url": settings.FRONTEND_URL,
+                    },
+                )
+
+                background_tasks.add_task(
+                    send_email,
+                    [auditor.user.email],
+                    f"EDC Submitted for {ncr.ref}",
+                    {
+                        "user": auditor.user.name,
+                        "message": (
+                            f"<p>This is to inform you that an EDC submitted for the non – conformity {ncr.ref}.</p>"
+                            f"<p><strong>Internal Audit Reference No.:</strong> {ncr.audit_info.ref}</p>"
+                            f"<p><strong>Non-Conformity Reference No.:</strong> {ncr.ref}</p>"
+                            f"<p><strong>Audit Date:</strong> {datetime.now().strftime('%d %B %Y')}</p>"
+                            f"<p><strong>Non-Conformity Description:</strong> {ncr.description}</p>"
+                            f"<p><strong>Auditee:</strong> {auditee.user.name}</p>"
+                            f"<p><strong>EDC:</strong> {data.expected_date_of_completion}</p>"
+                            f"<p><strong>Note:</strong> This is for your information.</p>"
+                        ),
+                        "frontend_url": settings.FRONTEND_URL,
+                    },
+                )
 
         if data.actual_date_of_completion:
             ncr.actual_date_of_completion = to_naive(data.actual_date_of_completion)
@@ -1834,10 +1964,10 @@ class NCRService:
         return value
 
     async def upload_excel_in_background(
-        self, background_tasks: BackgroundTasks, file: bytes,user_id: UUID
+        self, background_tasks: BackgroundTasks, file: bytes, user_id: UUID
     ):
         logging.info("NCR Excel upload scheduled in background task")
-        background_tasks.add_task(self.upload_excel, file,user_id)
+        background_tasks.add_task(self.upload_excel, file, user_id)
 
         return Response(
             message="NCR Excel upload is in progress.",
@@ -1847,10 +1977,10 @@ class NCRService:
         )
 
     async def upload_excel(self, file: bytes, user_id: UUID):
-        
+
         user = await self.session.execute(select(User).where(User.id == user_id))
         user = user.scalar_one_or_none()
-        
+
         logging.info("========== NCR EXCEL UPLOAD STARTED ==========")
 
         start_time = time.time()
@@ -1936,7 +2066,6 @@ class NCRService:
                 logging.warning("No valid rows found.")
                 return
 
-
             update_columns = set()
             for row in update_payload:
                 update_columns.update(row.keys())
@@ -1953,14 +2082,12 @@ class NCRService:
                     if pd.isna(value):
                         row[key] = None
 
-
             update_stmt = (
                 update(NCR.__table__)
                 .where(NCR.__table__.c.ref == bindparam("ref_param"))
                 .values({col: bindparam(col) for col in update_columns})
             )
 
-            
             result = await self.session.execute(update_stmt, update_payload)
             await self.session.commit()
 
@@ -1970,7 +2097,6 @@ class NCRService:
 
             logging.info("========== NCR EXCEL UPLOAD COMPLETED ==========")
             logging.info(f"Updated Rows: {updated_rows}")
-
 
             await send_email(
                 [user.email],
@@ -2002,8 +2128,7 @@ class NCRService:
                 {
                     "user": user.email,
                     "message": (
-                        f"<h3>NCR Excel Upload Failed</h3>"
-                        f"<p>Error: {str(e)}</p>"
+                        f"<h3>NCR Excel Upload Failed</h3>" f"<p>Error: {str(e)}</p>"
                     ),
                     "frontend_url": settings.FRONTEND_URL,
                 },

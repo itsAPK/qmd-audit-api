@@ -1,6 +1,6 @@
 from typing import Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from app.core.constants import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
 from app.core.schemas import Response, ResponseStatus
 from app.followup.models import CreateFollowupRequest, Followup, FollowupListResponse,FollowupResponse, UpdateFollowupRequest
@@ -13,10 +13,12 @@ router = APIRouter()
 
 @router.post("", response_model=Response[Followup])
 async def create_followup(
-    data: CreateFollowupRequest, followup_service: FollowupService = Depends(get_followup_service),
+    data: CreateFollowupRequest, 
+    background_tasks: BackgroundTasks,
+    followup_service: FollowupService = Depends(get_followup_service),
     user : User = Depends(authenticate),
 ):
-    followup = await followup_service.create_followup(data, user.id)
+    followup = await followup_service.create_followup(data, user.id, background_tasks)
     return Response(
         message="Followup created successfully",
         status=ResponseStatus.SUCCESS,
@@ -57,9 +59,11 @@ async def get_followup(
 async def update_followup(
     followup_id: UUID,
     data: UpdateFollowupRequest,
+    background_tasks: BackgroundTasks,
+        user: User = Depends(authenticate),
     followup_service: FollowupService = Depends(get_followup_service),
 ):
-    followup = await followup_service.update_followup(followup_id, data)
+    followup = await followup_service.update_followup(followup_id, data, user.id, background_tasks)
     return Response(
         message="Followup updated successfully",
         status=ResponseStatus.SUCCESS,

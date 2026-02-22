@@ -55,6 +55,7 @@ class AuditTeamRole(str, Enum):
     TRAINEE = "TRAINEE"
     AUDITEE_COORDINATOR = "AUDITEE_COORDINATOR"
     AUDITEE = "AUDITEE"
+    HOD = "HOD"
     
 
 

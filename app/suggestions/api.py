@@ -45,11 +45,12 @@ async def get_all_suggestions(
 @router.post("", response_model=Response[Suggestion])
 async def create_suggestion(
         suggestion: SuggestionCreateRequest,
+        background_tasks: BackgroundTasks,
     service: SuggestionService = Depends(get_suggestion_service),
 
     user : User = Depends(authenticate),
 ):
-    data = await service.create_suggestion(suggestion,user.id)
+    data = await service.create_suggestion(suggestion,user.id,background_tasks)
     return Response(
         message="Suggestion created successfully",
         status=ResponseStatus.SUCCESS,
@@ -62,10 +63,11 @@ async def create_suggestion(
 async def update_suggestion(
     id: UUID,
     suggestion: SuggestionUpdateRequest,
+    background_tasks: BackgroundTasks,
     user : User = Depends(authenticate),
     service: SuggestionService = Depends(get_suggestion_service),
 ):
-    data =await service.update_suggestion(id, suggestion)
+    data =await service.update_suggestion(id, suggestion, user.id, background_tasks)
     return Response(
         message="Suggestion updated successfully",
         status=ResponseStatus.SUCCESS,
