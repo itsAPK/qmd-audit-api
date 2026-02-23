@@ -684,7 +684,7 @@ class SuggestionService:
     async def upload_excel_in_background(
         self, background_tasks: BackgroundTasks, file: bytes, user_id: UUID):
         logging.info("[BACKGROUND] Scheduling Excel upload task")
-        background_tasks.add_task(self.upload_excel, file)
+        background_tasks.add_task(self.upload_excel, file,user_id)
 
         return Response(
             message="Suggestion Excel upload is in progress.",
