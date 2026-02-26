@@ -9,6 +9,8 @@ from app.checklist.models import FranchiseAuditChecklist, FranchiseAuditChecklis
 from app.checklist.services import ChecklistService
 from app.checklist.dependencies import get_checklist_service
 from app.core.constants import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
+from app.core.security import authenticate
+from app.users.models import User
 
 router = APIRouter()
 
@@ -159,9 +161,11 @@ async def delete_internal_auditors_observation(
 async def create_internal_audit_observation(
     data: InternalAuditObservationChecklistRequest,
     checklist_service: ChecklistService = Depends(get_checklist_service),
+     user : User = Depends(authenticate),
 ):
     res = await checklist_service.add_internal_audit_observation(
         data=data,
+        user_id=user.id,
     )
     
     return Response(
@@ -226,6 +230,7 @@ async def get_all_internal_audit_observation_checklists(
     from_date: Optional[datetime] = None,
     to_date: Optional[datetime] = None,
     checklist_service: ChecklistService = Depends(get_checklist_service),
+   
 ):
     res = await checklist_service.get_all_internal_audit_observation_checklists(
         filters=filters,
@@ -234,6 +239,7 @@ async def get_all_internal_audit_observation_checklists(
         page_size=page_size,
         from_date=from_date,
         to_date=to_date,
+        
     )
     
     return Response(
@@ -298,9 +304,11 @@ async def delete_internal_audit_observation_item(
 async def create_franchise_audit_checklist(
     data: FranchiseAuditChecklistRequest,
     checklist_service: ChecklistService = Depends(get_checklist_service),
+    user : User = Depends(authenticate),
 ):
     res = await checklist_service.add_franchise_audit_checklist(
         data=data,
+        user_id=user.id,
     )
     
     return Response(

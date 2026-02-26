@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from enum import Enum
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 from sqlalchemy import Column
 from sqlmodel import Field, ForeignKey, Relationship
@@ -62,7 +62,11 @@ class InternalAuditObservationChecklistItem(BaseModel, table=True):
 
 
 class InternalAuditObservationChecklist(BaseModel, table=True):
-    internal_audit_number: str
+    internal_audit_number_id: UUID = Field(
+        sa_column=Column(
+            PG_UUID, ForeignKey("auditinfo.id", ondelete="CASCADE"), nullable=False
+        )
+    )
     division: str
     audit_area: str
     location: str
@@ -80,6 +84,7 @@ class InternalAuditObservationChecklist(BaseModel, table=True):
     created_by: "User" = Relationship(
         back_populates="internal_audit_observation_checklists"
     )
+    internal_audit_number: 'AuditInfo' = Relationship(back_populates="internal_audit_observation_checklists")
 
 
 class BRCPWarehouseChecklist(BaseModel, table=True):
@@ -184,21 +189,34 @@ class BatteryRefreshStatus(BaseModel, table=True):
     
 
 class FranchiseAuditChecklist(BaseModel, table=True):
-    division: Optional[str]
-    audit_area: Optional[str]
-    location: Optional[str]
-    franchise_name: Optional[str]
-    audit_date: Optional[date]
-    suggestions: Optional[str]
-    service_engineer_sign: Optional[str]
-    created_by: "User" = Relationship(back_populates="franchise_audit_checklists")
-    created_by_id : UUID = Field(
-            sa_column=Column(
-                PG_UUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=False
-            )
+    division: Optional[str] = None
+    audit_area: Optional[str] = None
+    location: Optional[str] = None
+    franchise_name: Optional[str] = None
+    audit_date: Optional[datetime] = None
+    suggestions: Optional[str] = None
+
+    status: ChecklistStatus = Field(
+        default=ChecklistStatus.DRAFTED
+    )
+
+    service_engineer_sign: Optional[str] = None
+
+    created_by_id: UUID = Field(
+        sa_column=Column(
+            PG_UUID,
+            ForeignKey("user.id", ondelete="CASCADE"),
+            nullable=False,
         )
-    observations: List["FranchiseAuditObservation"] = Relationship(back_populates="checklist")
-    
+    )
+
+    created_by: "User" = Relationship(
+        back_populates="franchise_audit_checklists"
+    )
+
+    observations: List["FranchiseAuditObservation"] = Relationship(
+        back_populates="checklist"
+    )
     
 class FranchiseAuditObservation(BaseModel, table=True):
         section: str  
@@ -270,6 +288,7 @@ class InternalAuditObservationChecklistRequest(PydanticBaseModel):
     location: str
     status: ChecklistStatus
     items: list["InternalAuditObservationChecklistItemRequest"] = []
+    auditee_name: str
     
 class InternalAuditObservationChecklistItemRequest(PydanticBaseModel):
     sl_no: str
@@ -285,6 +304,7 @@ class InternalAuditObservationChecklistUpdate(PydanticBaseModel):
     audit_area: Optional[str] = None
     location: Optional[str] = None
     status: Optional[ChecklistStatus] = None
+    auditee_name: Optional[str] = None
 
 class InternalAuditObservationChecklistItemUpdate(PydanticBaseModel):
     sl_no: Optional[str] = None
@@ -306,14 +326,16 @@ class InternalAuditObservationChecklistItemResponse(PydanticBaseModel):
     
 class InternalAuditObservationChecklistResponse(PydanticBaseModel):
     id: UUID
-    internal_audit_number: str
+    internal_audit_number: Any
     division: str
     audit_area: str
     location: str
     status: ChecklistStatus
+    auditee_name: Optional[str] = None
     items: list["InternalAuditObservationChecklistItemResponse"] = []
     created_by : Optional["User"] = None
     created_at: datetime
+    updated_at: Optional[datetime] = None
     
 class InternalAuditObservationChecklistListResponse(PydanticBaseModel):
     total: int
@@ -328,8 +350,9 @@ class FranchiseAuditChecklistRequest(PydanticBaseModel):
     audit_area: Optional[str]
     location: Optional[str]
     franchise_name: Optional[str]
-    audit_date: Optional[date]
+    audit_date: Optional[datetime]
     suggestions: Optional[str]
+    status : Optional[ChecklistStatus] = Field(default=ChecklistStatus.DRAFTED)
     service_engineer_sign: Optional[str]
     observations: List["FranchiseAuditObservationRequest"] = []
     
@@ -348,9 +371,10 @@ class FranchiseAuditChecklistUpdate(PydanticBaseModel):
     audit_area: Optional[str] = None
     location: Optional[str] = None
     franchise_name: Optional[str] = None
-    audit_date: Optional[date] = None
+    audit_date: Optional[datetime] = None
     suggestions: Optional[str] = None
     service_engineer_sign: Optional[str] = None
+    status : Optional[ChecklistStatus] = None
     
     
 class FranchiseAuditObservationUpdate(PydanticBaseModel):
@@ -366,12 +390,14 @@ class FranchiseAuditChecklistResponse(PydanticBaseModel):
     audit_area: str
     location: str
     franchise_name: str
-    audit_date: date
+    audit_date: datetime
     suggestions: str
+    status : ChecklistStatus 
     service_engineer_sign: str
     observations: list["FranchiseAuditObservationResponse"] = []
     created_by : Optional["User"] = None
     created_at: datetime
+    updated_at: Optional[datetime] = None
 
 class FranchiseAuditObservationResponse(PydanticBaseModel):
         id: UUID
@@ -389,3 +415,4 @@ class FranchiseAuditChecklistListResponse(PydanticBaseModel):
     data : list["FranchiseAuditChecklistResponse"]
 
 from app.users.models import User
+from app.audit_info.models import AuditInfo

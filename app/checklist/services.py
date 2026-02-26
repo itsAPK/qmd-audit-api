@@ -12,6 +12,7 @@ from app.checklist.models import (
     FranchiseAuditObservationResponse,
     FranchiseAuditObservationUpdate,
     InternalAuditObservationChecklistItemRequest,
+    InternalAuditObservationChecklistItemResponse,
     InternalAuditObservationChecklistListResponse,
     InternalAuditObservationChecklistRequest,
     InternalAuditObservationChecklistResponse,
@@ -364,24 +365,29 @@ class ChecklistService:
     async def add_internal_audit_observation(
         self,
         data: InternalAuditObservationChecklistRequest,
-        
+        user_id     : UUID,
     ):
         
         checklist = InternalAuditObservationChecklist(
-            internal_audit_number=data.internal_audit_number,
+            internal_audit_number_id=data.internal_audit_number,
             division=data.division,
             audit_area=data.audit_area,
             location=data.location,
             status=data.status,
+            auditee_name=data.auditee_name,
+            created_by_id=user_id,
         )
         self.session.add(checklist)
         await self.session.commit()
         
         for item in data.items:
-            checklist_item = InternalAuditorsChecklistItem(
-                activity_description=item.activity_description,
-                applicable_functions=item.applicable_functions,
-                audit_findings=item.audit_findings,
+            checklist_item = InternalAuditObservationChecklistItem(
+                sl_no=item.sl_no,
+                procedure_ref=item.procedure_ref,
+                qms_check_point=item.qms_check_point,
+                observation=item.observation,
+                clause_no=item.clause_no,
+                ncr_type=item.ncr_type,
                 checklist_id=checklist.id,
             )
             self.session.add(checklist_item)
@@ -454,10 +460,10 @@ class ChecklistService:
             select(InternalAuditObservationChecklist)
             .where(InternalAuditObservationChecklist.id == checklist_id)
             .options(
-                selectinload(InternalAuditObservationChecklist.items).options(
-                    selectinload(InternalAuditorsChecklistItem.checklist)
-                ),
-            )
+            selectinload(InternalAuditObservationChecklist.items),
+            selectinload(InternalAuditObservationChecklist.created_by),
+            selectinload(InternalAuditObservationChecklist.internal_audit_number),
+        )
         )
         checklist = checklist.scalar_one_or_none()
         if not checklist:
@@ -479,12 +485,17 @@ class ChecklistService:
             audit_area=checklist.audit_area,
             location=checklist.location,
             status=checklist.status,
+            auditee_name=checklist.auditee_name,
+            updated_at =checklist.updated_at,
             items=[
-                InternalAuditorsChecklistItemResponse(
+                InternalAuditObservationChecklistItemResponse(
                     id=item.id,
-                    activity_description=item.activity_description,
-                    applicable_functions=item.applicable_functions,
-                    audit_findings=item.audit_findings,
+                    sl_no=item.sl_no,
+                    procedure_ref=item.procedure_ref,
+                    qms_check_point=item.qms_check_point,
+                    observation=item.observation,
+                    clause_no=item.clause_no,
+                    ncr_type=item.ncr_type,
                     checklist_id=item.checklist_id,
                 )
                 for item in checklist.items
@@ -503,10 +514,9 @@ class ChecklistService:
         to_date: Optional[datetime] = None,
     ):
         stmt = select(InternalAuditObservationChecklist).options(
-            selectinload(InternalAuditObservationChecklist.items).options(
-                selectinload(InternalAuditorsChecklistItem.checklist)
-            ),
+            selectinload(InternalAuditObservationChecklist.items),
             selectinload(InternalAuditObservationChecklist.created_by),
+            selectinload(InternalAuditObservationChecklist.internal_audit_number),
         )
         from_date = to_naive(from_date)
         to_date = to_naive(to_date)
@@ -547,12 +557,16 @@ class ChecklistService:
                     audit_area=checklist.audit_area,
                     location=checklist.location,
                     status=checklist.status,
+                     auditee_name=checklist.auditee_name,
                     items=[
-                        InternalAuditorsChecklistItemResponse(
+                        InternalAuditObservationChecklistItemResponse(
                             id=item.id,
-                            activity_description=item.activity_description,
-                            applicable_functions=item.applicable_functions,
-                            audit_findings=item.audit_findings,
+                            sl_no=item.sl_no,
+                            procedure_ref=item.procedure_ref,
+                            qms_check_point=item.qms_check_point,
+                            observation=item.observation,
+                            clause_no=item.clause_no,
+                            ncr_type=item.ncr_type,
                             checklist_id=item.checklist_id,
                         )
                         for item in checklist.items
@@ -659,6 +673,7 @@ class ChecklistService:
     async def add_franchise_audit_checklist(
         self,
         data: FranchiseAuditChecklistRequest,
+        user_id: UUID,
         
     ):
         
@@ -667,9 +682,11 @@ class ChecklistService:
             audit_area=data.audit_area,
             location=data.location,
             franchise_name=data.franchise_name,
-            audit_date=data.audit_date,
+            audit_date=to_naive(data.audit_date),
             suggestions=data.suggestions,
             service_engineer_sign=data.service_engineer_sign,
+            created_by_id=user_id,
+            status=data.status,
         )
         self.session.add(checklist)
         await self.session.commit()
@@ -708,6 +725,10 @@ class ChecklistService:
                     "data": None,
                 },
             )
+            
+        if data.status:
+            
+            checklist.status = data.status
         
         if data.division:
             checklist.division = data.division
@@ -722,7 +743,7 @@ class ChecklistService:
             checklist.franchise_name = data.franchise_name
             
         if data.audit_date:
-            checklist.audit_date = data.audit_date
+            checklist.audit_date = to_naive(data.audit_date)
             
         if data.suggestions:
             checklist.suggestions = data.suggestions
@@ -761,6 +782,7 @@ class ChecklistService:
                 selectinload(FranchiseAuditChecklist.observations).options(
                     selectinload(FranchiseAuditObservation.checklist)
                 ),
+                selectinload(FranchiseAuditChecklist.created_by),
             )
         )
         checklist = checklist.scalar_one_or_none()
@@ -785,6 +807,7 @@ class ChecklistService:
             audit_date=checklist.audit_date,
             suggestions=checklist.suggestions,
             service_engineer_sign=checklist.service_engineer_sign,
+            status=checklist.status,
             observations=[
                 FranchiseAuditObservationResponse(
                     id=item.id,
@@ -797,6 +820,7 @@ class ChecklistService:
             ],
             created_by=checklist.created_by,
             created_at=checklist.created_at,
+            updated_at=checklist.updated_at,
         )
         
     async def get_all_franchise_audit_checklists(
@@ -855,6 +879,7 @@ class ChecklistService:
                     audit_date=checklist.audit_date,
                     suggestions=checklist.suggestions,
                     service_engineer_sign=checklist.service_engineer_sign,
+                    status=checklist.status,
                     observations=[
                         FranchiseAuditObservationResponse(
                             id=item.id,
@@ -867,6 +892,7 @@ class ChecklistService:
                     ],
                     created_by=checklist.created_by,
                     created_at=checklist.created_at,
+                    updated_at=checklist.updated_at,
                 )
                 for checklist in checklists
             ],    
