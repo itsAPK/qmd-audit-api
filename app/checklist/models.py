@@ -96,6 +96,7 @@ class BRCPWarehouseChecklist(BaseModel, table=True):
     internal_audit_number: str
     warehouse_incharge: str
     status: ChecklistStatus
+    supplier: Optional[str] = None
     created_by: "User" = Relationship(back_populates="brcp_warehouse_checklists")
     chargers: List["ChargerInfrastructure"] = Relationship(back_populates="checklist")
     instruments: List["MeasuringInstrument"] = Relationship(back_populates="checklist")
@@ -429,6 +430,184 @@ class FranchiseAuditChecklistListResponse(PydanticBaseModel):
     page_size: int
     total_pages: int
     data : list["FranchiseAuditChecklistResponse"]
+    
+class BRCPWarehouseChecklistRequest(PydanticBaseModel):
+    internal_audit_number: str
+    warehouse_incharge: str
+    supplier : Optional[str] = None
+    status: ChecklistStatus
+    chargers: List["ChargerInfrastructureRequest"] = []
+    instruments: List["MeasuringInstrumentRequest"] = []
+    batteries: List["BatteryRefreshStatusRequest"] = []
+    additional_info: Optional["WarehouseAdditionalInfoRequest"] = None
+    
+class ChargerInfrastructureRequest(PydanticBaseModel) :
+    type: str  # 2W / 4W / VRLA / Tubular
+    charger_serial_no: Optional[str] = None
+    make: Optional[str] = None
+    year_of_mfg: Optional[int] = None
+    rating: Optional[str] = None
+    channels_working: Optional[int] = None
+    channels_not_working: Optional[int] = None
+    calibration_due_on: Optional[date] = None
+    work_instruction_available: Optional[bool] = None
+    
+class MeasuringInstrumentRequest(PydanticBaseModel):
+    instrument_name: str  # Multimeter / Clamp meter
+    imte_no: Optional[str] = None
+    make: Optional[str] = None
+    serial_no: Optional[str] = None
+    calibration_due_on: Optional[date]
+    
+class WarehouseAdditionalInfoRequest(PydanticBaseModel):
+    operating_by: Optional[str] = None  # AREML / 3rd Party
+    total_manpower: Optional[int] = None
+    refresh_charging_manpower: Optional[int] = None
+    power_cut_hours_per_day: Optional[float] = None
+    dg_available: Optional[bool] = None
+    additional_information: Optional[str] = None
+    
+class BatteryRefreshStatusRequest(PydanticBaseModel):
+    type: str  # 2W / 4W
+    model: Optional[str] = None  # AM / PZ / Elito
+    total_due_qty: Optional[int] = None
+    ageing_91_180: Optional[int] = None
+    refresh_91_180_date: Optional[date] = None
+    ageing_181_270: Optional[int] = None
+    refresh_181_270_date: Optional[date] = None
+    ageing_271_360: Optional[int] = None
+    refresh_271_360_date: Optional[date] = None
+    ageing_361_450: Optional[int] = None
+    refresh_361_450_date: Optional[date] = None
+    ageing_451_540: Optional[int] = None
+    refresh_451_540_date: Optional[date] = None
+    ageing_above_540: Optional[int] = None
+    remarks: Optional[str] = None
+    
+class BRCPWarehouseChecklistUpdate(PydanticBaseModel):
+    internal_audit_number: Optional[str] = None
+    warehouse_incharge: Optional[str] = None
+    supplier : Optional[str] = None
+    status: Optional[ChecklistStatus] = None
+    chargers: Optional[List["ChargerInfrastructureUpdate"]] = None
+    instruments: Optional[List["MeasuringInstrumentUpdate"]] = None
+    batteries: Optional[List["BatteryRefreshStatusUpdate"]] = None
+    additional_info: Optional["WarehouseAdditionalInfoUpdate"] = None
+    
+class ChargerInfrastructureUpdate(PydanticBaseModel) :
+    type: Optional[str] = None  # 2W / 4W / VRLA / Tubular
+    charger_serial_no: Optional[str] = None
+    make: Optional[str] = None
+    year_of_mfg: Optional[int] = None
+    rating: Optional[str] = None
+    channels_working: Optional[int] = None
+    channels_not_working: Optional[int] = None
+    calibration_due_on: Optional[date] = None
+    work_instruction_available: Optional[bool] = None
+    
+class MeasuringInstrumentUpdate(PydanticBaseModel):
+    instrument_name: Optional[str] = None  # Multimeter / Clamp meter
+    imte_no: Optional[str] = None
+    make: Optional[str] = None
+    serial_no: Optional[str] = None
+    calibration_due_on: Optional[date]
+    
+class WarehouseAdditionalInfoUpdate(PydanticBaseModel):
+    operating_by: Optional[str] = None  # AREML / 3rd Party
+    total_manpower: Optional[int] = None
+    refresh_charging_manpower: Optional[int] = None
+    power_cut_hours_per_day: Optional[float] = None
+    dg_available: Optional[bool] = None
+    additional_information: Optional[str] = None
+    
+class BatteryRefreshStatusUpdate(PydanticBaseModel):
+    type: Optional[str] = None  # 2W / 4W
+    model: Optional[str] = None  # AM / PZ / Elito
+    total_due_qty: Optional[int] = None
+    ageing_91_180: Optional[int] = None
+    refresh_91_180_date: Optional[date] = None
+    ageing_181_270: Optional[int] = None
+    refresh_181_270_date: Optional[date] = None
+    ageing_271_360: Optional[int] = None
+    refresh_271_360_date: Optional[date] = None
+    ageing_361_450: Optional[int] = None
+    refresh_361_450_date: Optional[date] = None
+    ageing_451_540: Optional[int] = None
+    refresh_451_540_date: Optional[date] = None
+    ageing_above_540: Optional[int] = None
+    remarks: Optional[str] = None   
+    
+class BRCPWarehouseChecklistResponse(PydanticBaseModel):
+    id: UUID
+    internal_audit_number: str
+    warehouse_incharge: str
+    supplier : Optional[str] = None
+    status: ChecklistStatus
+    chargers: list["ChargerInfrastructureResponse"] = []
+    instruments: list["MeasuringInstrumentResponse"] = []
+    batteries: list["BatteryRefreshStatusResponse"] = []
+    additional_info: Optional["WarehouseAdditionalInfoResponse"] = None
+    created_by : Optional["User"] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+class ChargerInfrastructureResponse(PydanticBaseModel) :
+    id: UUID
+    type: str  # 2W / 4W / VRLA / Tubular
+    charger_serial_no: Optional[str] = None
+    make: Optional[str] = None
+    year_of_mfg: Optional[int] = None
+    rating: Optional[str] = None
+    channels_working: Optional[int] = None
+    channels_not_working: Optional[int] = None
+    calibration_due_on: Optional[date] = None
+    work_instruction_available: Optional[bool] = None
+    checklist_id: UUID
+    
+class MeasuringInstrumentResponse(PydanticBaseModel):
+    id: UUID
+    instrument_name: str  # Multimeter / Clamp meter
+    imte_no: Optional[str] = None
+    make: Optional[str] = None
+    serial_no: Optional[str] = None
+    calibration_due_on: Optional[date]
+    checklist_id: UUID
+    
+class WarehouseAdditionalInfoResponse(PydanticBaseModel):
+    id: UUID
+    operating_by: Optional[str] = None  # AREML / 3rd Party
+    total_manpower: Optional[int] = None
+    refresh_charging_manpower: Optional[int] = None
+    power_cut_hours_per_day: Optional[float] = None
+    dg_available: Optional[bool] = None
+    additional_information: Optional[str] = None
+    checklist_id: UUID
+    
+class BatteryRefreshStatusResponse(PydanticBaseModel):
+    id: UUID
+    type: str  # 2W / 4W
+    model: Optional[str] = None  # AM / PZ / Elito
+    total_due_qty: Optional[int] = None
+    ageing_91_180: Optional[int] = None
+    refresh_91_180_date: Optional[date] = None
+    ageing_181_270: Optional[int] = None
+    refresh_181_270_date: Optional[date] = None
+    ageing_271_360: Optional[int] = None
+    refresh_271_360_date: Optional[date] = None
+    ageing_361_450: Optional[int] = None
+    refresh_361_450_date: Optional[date] = None
+    ageing_451_540: Optional[int] = None
+    refresh_451_540_date: Optional[date] = None
+    ageing_above_540: Optional[int] = None
+    remarks: Optional[str] = None
+    checklist_id: UUID
+    
+class BRCPWarehouseChecklistListResponse(PydanticBaseModel):
+    total: int
+    current_page: int
+    page_size: int
+    total_pages: int
+    data : list["BRCPWarehouseChecklistResponse"]
 
 from app.users.models import User
 from app.audit_info.models import AuditInfo

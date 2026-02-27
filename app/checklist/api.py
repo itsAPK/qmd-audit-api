@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends,BackgroundTasks
 
 from app.core.schemas import Response,ResponseStatus
-from app.checklist.models import FranchiseAuditChecklist, FranchiseAuditChecklistListResponse, FranchiseAuditChecklistRequest, FranchiseAuditChecklistResponse, FranchiseAuditChecklistUpdate, FranchiseAuditObservation, FranchiseAuditObservationRequest, FranchiseAuditObservationUpdate, InternalAuditObservationChecklist, InternalAuditObservationChecklistItem, InternalAuditObservationChecklistItemRequest, InternalAuditObservationChecklistListResponse, InternalAuditObservationChecklistRequest, InternalAuditObservationChecklistResponse, InternalAuditObservationChecklistUpdate, InternalAuditorsChecklistItem, InternalAuditorsChecklistItemRequest, InternalAuditorsChecklistRequested,InternalAuditorsChecklist, InternalAuditorsChecklistResponse, InternalAuditorsChecklistUpdate, InternalAuditorsChecklistListResponse
+from app.checklist.models import BRCPWarehouseChecklist, BRCPWarehouseChecklistListResponse, BRCPWarehouseChecklistRequest, BRCPWarehouseChecklistResponse, FranchiseAuditChecklist, FranchiseAuditChecklistListResponse, FranchiseAuditChecklistRequest, FranchiseAuditChecklistResponse, FranchiseAuditChecklistUpdate, FranchiseAuditObservation, FranchiseAuditObservationRequest, FranchiseAuditObservationUpdate, InternalAuditObservationChecklist, InternalAuditObservationChecklistItem, InternalAuditObservationChecklistItemRequest, InternalAuditObservationChecklistListResponse, InternalAuditObservationChecklistRequest, InternalAuditObservationChecklistResponse, InternalAuditObservationChecklistUpdate, InternalAuditorsChecklistItem, InternalAuditorsChecklistItemRequest, InternalAuditorsChecklistRequested,InternalAuditorsChecklist, InternalAuditorsChecklistResponse, InternalAuditorsChecklistUpdate, InternalAuditorsChecklistListResponse
 from app.checklist.services import ChecklistService
 from app.checklist.dependencies import get_checklist_service
 from app.core.constants import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
@@ -441,3 +441,95 @@ async def delete_franchise_audit_observation(
         data=res,
         status = ResponseStatus.DELETED
     )
+    
+@router.get("/brcp_warehouse_checklist/{checklist_id}", response_model=Response[BRCPWarehouseChecklistResponse])
+async def get_brcp_warehouse_checklist_by_id(
+    checklist_id: UUID,
+    checklist_service: ChecklistService = Depends(get_checklist_service),
+):
+    res = await checklist_service.get_brcp_warehouse_checklist_by_id(checklist_id=checklist_id)
+    
+    return Response(
+        success=True,
+        message="BRCP Warehouse Checklist retrieved successfully",
+        data=res,
+        status = ResponseStatus.RETRIEVED
+    )
+    
+@router.get("/brcp_warehouse_checklist", response_model=Response[BRCPWarehouseChecklistListResponse])
+async def get_all_brcp_warehouse_checklists(
+    filters: Optional[str] = None,
+    sort: Optional[str] = "created_at.desc",
+    page: int = DEFAULT_PAGE,
+    page_size: int = DEFAULT_PAGE_SIZE,
+    from_date: Optional[datetime] = None,
+    to_date: Optional[datetime] = None,
+    checklist_service: ChecklistService = Depends(get_checklist_service),
+):
+    res = await checklist_service.get_all_brcp_warehouse_checklists(
+        filters=filters,
+        sort=sort,
+        page=page,
+        page_size=page_size,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    
+    return Response(
+        success=True,
+        message="BRCP Warehouse Checklists retrieved successfully",
+        data=res,
+        status = ResponseStatus.RETRIEVED
+    )
+    
+    
+@router.post("/brcp_warehouse_checklist", response_model=Response[BRCPWarehouseChecklist])
+async def create_brcp_warehouse_checklist(
+    data: BRCPWarehouseChecklistRequest,
+    checklist_service: ChecklistService = Depends(get_checklist_service),
+    user : User = Depends(authenticate),
+):
+    res = await checklist_service.create_brcp_warehouse_checklist(
+        data=data,
+        user_id=user.id,
+    )
+    
+    return Response(
+        success=True,
+        message="BRCP Warehouse Checklist created successfully",
+        data=res,
+        status = ResponseStatus.CREATED
+    )
+    
+@router.patch("brcp_warehouse_checklist/{checklist_id}", response_model=Response[BRCPWarehouseChecklist])
+async def update_brcp_warehouse_checklist(
+    checklist_id: UUID,
+    data: BRCPWarehouseChecklistRequest,
+    checklist_service: ChecklistService = Depends(get_checklist_service),
+):
+    res = await checklist_service.update_brcp_warehouse_checklist(
+        checklist_id=checklist_id,
+        data=data,
+    )
+    
+    return Response(
+        success=True,
+        message="BRCP Warehouse Checklist updated successfully",
+        data=res,
+        status = ResponseStatus.UPDATED
+    )
+    
+@router.delete("brcp_warehouse_checklist/{checklist_id}", response_model=Response[BRCPWarehouseChecklist])
+async def delete_brcp_warehouse_checklist(
+    checklist_id: UUID,
+    checklist_service: ChecklistService = Depends(get_checklist_service),
+):
+    res = await checklist_service.delete_brcp_warehouse_checklist(checklist_id=checklist_id)
+    
+    return Response(
+        success=True,
+        message="BRCP Warehouse Checklist deleted successfully",
+        data=res,
+        status = ResponseStatus.DELETED
+    )
+    

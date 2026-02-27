@@ -4,6 +4,11 @@ from uuid import UUID
 
 from fastapi import HTTPException,status
 from app.checklist.models import (
+    BRCPWarehouseChecklistListResponse,
+    BRCPWarehouseChecklistRequest,
+    BRCPWarehouseChecklistResponse,
+    BatteryRefreshStatusResponse,
+    ChargerInfrastructureResponse,
     FranchiseAuditChecklistListResponse,
     FranchiseAuditChecklistRequest,
     FranchiseAuditChecklistResponse,
@@ -33,6 +38,8 @@ from app.checklist.models import (
     BatteryRefreshStatus,
     FranchiseAuditChecklist,
     FranchiseAuditObservation,
+    MeasuringInstrumentResponse,
+    WarehouseAdditionalInfo,
 )
 from app.core.config import settings
 from app.core.mail import send_email
@@ -1063,4 +1070,455 @@ class ChecklistService:
         await self.session.commit()    
         return item
     
+    async def create_brcp_warehouse_checklist(
+        self,
+        data: BRCPWarehouseChecklistRequest,
+        user_id: UUID,
+    ):
+        
+        checklist = BRCPWarehouseChecklist(
+            internal_audit_number=data.internal_audit_number,
+            warehouse_incharge=data.warehouse_incharge,
+            supplier=data.supplier,
+            status=data.status,
+            created_by_id=user_id,
+        )
+        self.session.add(checklist)
+        await self.session.commit()
+        
+        for item in data.chargers:
+            checklist_item = ChargerInfrastructure(
+                type=item.type,
+                charger_serial_no=item.charger_serial_no,
+                make=item.make,
+                year_of_mfg=item.year_of_mfg,
+                rating=item.rating,
+                channels_working=item.channels_working,
+                channels_not_working=item.channels_not_working,
+                calibration_due_on=item.calibration_due_on,
+                work_instruction_available=item.work_instruction_available,
+                checklist_id=checklist.id,
+            )
+            self.session.add(checklist_item)
+            await self.session.commit()
+            
+            
+        for item in data.instruments:
+            checklist_item = MeasuringInstrument(
+                instrument_name=item.instrument_name,
+                imte_no=item.imte_no,
+                make=item.make,
+                serial_no=item.serial_no,
+                calibration_due_on=item.calibration_due_on,
+                checklist_id=checklist.id,
+            )
+            self.session.add(checklist_item)
+            await self.session.commit()
+            
+            
+        for item in data.batteries:
+            checklist_item = BatteryRefreshStatus(
+                type=item.type,
+                model=item.model,
+                total_due_qty=item.total_due_qty,
+                ageing_91_180=item.ageing_91_180,
+                refresh_91_180_date=item.refresh_91_180_date,
+                ageing_181_270=item.ageing_181_270,
+                refresh_181_270_date=item.refresh_181_270_date,
+                ageing_271_360=item.ageing_271_360,
+                refresh_271_360_date=item.refresh_271_360_date,
+                ageing_361_450=item.ageing_361_450,
+                refresh_361_450_date=item.refresh_361_450_date,
+                ageing_451_540=item.ageing_451_540,
+                refresh_451_540_date=item.refresh_451_540_date,
+                ageing_above_540=item.ageing_above_540,
+                remarks=item.remarks,
+                checklist_id=checklist.id,
+            )
+            self.session.add(checklist_item)
+            await self.session.commit()
+            
+            
+        for item in data.additional_info:
+            checklist_item = WarehouseAdditionalInfo(
+                operating_by=item.operating_by,
+                total_manpower=item.total_manpower,
+                refresh_charging_manpower=item.refresh_charging_manpower,
+                power_cut_hours_per_day=item.power_cut_hours_per_day,
+                dg_available=item.dg_available,
+                additional_information=item.additional_information,
+                checklist_id=checklist.id,
+            )
+            self.session.add(checklist_item)
+            await self.session.commit()
+            
+            
+        return checklist
     
+    
+    async def get_brcp_warehouse_checklist_by_id(self, checklist_id: UUID):
+        
+        checklist = await self.session.execute(
+            select(BRCPWarehouseChecklist)
+            .where(BRCPWarehouseChecklist.id == checklist_id)
+            .options(
+                selectinload(BRCPWarehouseChecklist.chargers).options(
+                    selectinload(ChargerInfrastructure.checklist)
+                ),
+                selectinload(BRCPWarehouseChecklist.instruments).options(
+                    selectinload(MeasuringInstrument.checklist)
+                ),
+                selectinload(BRCPWarehouseChecklist.batteries).options(
+                    selectinload(BatteryRefreshStatus.checklist)
+                ),
+                selectinload(BRCPWarehouseChecklist.additional_info).options(
+                    selectinload(WarehouseAdditionalInfo.checklist)
+                ),
+                selectinload(BRCPWarehouseChecklist.created_by),
+            )
+        )
+        checklist = checklist.scalar_one_or_none()
+        if not checklist:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "message": "Checklist not found",
+                    "success": False,
+                    "status": status.HTTP_404_NOT_FOUND,
+                    "data": None,
+                },
+            )
+    
+    
+        return BRCPWarehouseChecklistResponse(
+            id=checklist.id,
+            internal_audit_number=checklist.internal_audit_number,
+            warehouse_incharge=checklist.warehouse_incharge,
+            supplier=checklist.supplier,
+            status=checklist.status,
+            chargers=[
+                ChargerInfrastructureResponse(
+                    id=item.id,
+                    type=item.type,
+                    charger_serial_no=item.charger_serial_no,
+                    make=item.make,
+                    year_of_mfg=item.year_of_mfg,
+                    rating=item.rating,
+                    channels_working=item.channels_working,
+                    channels_not_working=item.channels_not_working,
+                    calibration_due_on=item.calibration_due_on,
+                    work_instruction_available=item.work_instruction_available,
+                    checklist_id=item.checklist_id,
+                )
+                for item in checklist.chargers
+            ],
+            instruments=[
+                MeasuringInstrumentResponse(
+                    id=item.id,
+                    instrument_name=item.instrument_name,
+                    imte_no=item.imte_no,
+                    make=item.make,
+                    serial_no=item.serial_no,
+                    calibration_due_on=item.calibration_due_on,
+                    checklist_id=item.checklist_id,
+                )
+                for item in checklist.instruments
+            ],
+            batteries=[
+                BatteryRefreshStatusResponse(
+                    id=item.id,
+                    type=item.type,
+                    model=item.model,
+                    total_due_qty=item.total_due_qty,
+                    ageing_91_180=item.ageing_91_180,
+                    refresh_91_180_date=item.refresh_91_180_date,
+                    ageing_181_270=item.ageing_181_270,
+                    refresh_181_270_date=item.refresh_181_270_date,
+                    ageing_271_360=item.ageing_271_360,
+                    refresh_271_360_date=item.refresh_271_360_date,
+                    ageing_361_450=item.ageing_361_450,
+                    refresh_361_450_date=item.refresh_361_450_date,
+                    ageing_451_540=item.ageing_451_540,
+                    refresh_451_540_date=item.refresh_451_540_date,
+                    ageing_above_540=item.ageing_above_540,
+                    remarks=item.remarks,
+                    checklist_id=item.checklist_id,
+                )
+                for item in checklist.batteries
+            ],
+            additional_info=checklist.additional_info,
+            created_by=checklist.created_by,
+            created_at=checklist.created_at,
+            updated_at=checklist.updated_at,
+        )
+        
+    async def get_all_brcp_warehouse_checklists(
+        self,
+        filters: Optional[str] = None,
+        sort: Optional[str] = "created_at.desc",
+        page: int = DEFAULT_PAGE,
+        page_size: int = DEFAULT_PAGE_SIZE,
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
+    ):
+        stmt = select(BRCPWarehouseChecklist).options(
+            selectinload(BRCPWarehouseChecklist.chargers).options(
+                selectinload(ChargerInfrastructure.checklist)
+            ),
+            selectinload(BRCPWarehouseChecklist.instruments).options(
+                selectinload(MeasuringInstrument.checklist)
+            ),
+            selectinload(BRCPWarehouseChecklist.batteries).options(
+                selectinload(BatteryRefreshStatus.checklist)
+            ),
+            selectinload(BRCPWarehouseChecklist.additional_info).options(
+                selectinload(WarehouseAdditionalInfo.checklist)
+            ),
+            selectinload(BRCPWarehouseChecklist.created_by),
+        )
+        from_date = to_naive(from_date)
+        to_date = to_naive(to_date)
+        if from_date and to_date:
+            stmt = stmt.where(
+                BRCPWarehouseChecklist.from_date >= from_date, BRCPWarehouseChecklist.to_date <= to_date
+            )
+        elif from_date:
+            stmt = stmt.where(BRCPWarehouseChecklist.from_date >= from_date)
+        elif to_date:
+            stmt = stmt.where(BRCPWarehouseChecklist.to_date <= to_date)
+
+        if filters:
+            stmt = apply_filters(stmt, filters, BRCPWarehouseChecklist, self.graph)
+
+        if sort:
+            stmt = apply_sort(stmt, sort, BRCPWarehouseChecklist, self.graph)
+
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        total_result = await self.session.execute(count_stmt)
+        total = total_result.scalar()
+
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+
+        result = await self.session.execute(stmt)
+        checklists = result.scalars().all()
+
+        response = BRCPWarehouseChecklistListResponse(
+            total=total,
+            current_page=page,
+            page_size=page_size,
+            total_pages=total // page_size + 1,
+            data=[
+                BRCPWarehouseChecklistResponse(
+                    id=checklist.id,
+                    internal_audit_number=checklist.internal_audit_number,
+                    warehouse_incharge=checklist.warehouse_incharge,
+                    supplier=checklist.supplier,
+                    status=checklist.status,
+                    chargers=[
+                        ChargerInfrastructureResponse(
+                            id=item.id,
+                            type=item.type,
+                            charger_serial_no=item.charger_serial_no,
+                            make=item.make,
+                            year_of_mfg=item.year_of_mfg,
+                            rating=item.rating,
+                            channels_working=item.channels_working,
+                            channels_not_working=item.channels_not_working,
+                            calibration_due_on=item.calibration_due_on,
+                            work_instruction_available=item.work_instruction_available,
+                            checklist_id=item.checklist_id,
+                        )
+                        for item in checklist.chargers
+                    ],
+                    instruments=[
+                        MeasuringInstrumentResponse(
+                            id=item.id,
+                            instrument_name=item.instrument_name,
+                            imte_no=item.imte_no,
+                            make=item.make,
+                            serial_no=item.serial_no,
+                            calibration_due_on=item.calibration_due_on,
+                            checklist_id=item.checklist_id,
+                        )
+                        for item in checklist.instruments
+                    ],
+                    batteries=[
+                        BatteryRefreshStatusResponse(
+                            id=item.id,
+                            type=item.type,
+                            model=item.model,
+                            total_due_qty=item.total_due_qty,
+                            ageing_91_180=item.ageing_91_180,
+                            refresh_91_180_date=item.refresh_91_180_date,
+                            ageing_181_270=item.ageing_181_270,
+                            refresh_181_270_date=item.refresh_181_270_date,
+                            ageing_271_360=item.ageing_271_360,
+                            refresh_271_360_date=item.refresh_271_360_date,
+                            ageing_361_450=item.ageing_361_450,
+                            refresh_361_450_date=item.refresh_361_450_date,
+                            ageing_451_540=item.ageing_451_540,
+                            refresh_451_540_date=item.refresh_451_540_date,
+                            ageing_above_540=item.ageing_above_540,
+                            remarks=item.remarks,
+                            checklist_id=item.checklist_id,
+                        )
+                        for item in checklist.batteries
+                    ],
+                    additional_info=checklist.additional_info,
+                    created_by=checklist.created_by,
+                    created_at=checklist.created_at,
+                    updated_at=checklist.updated_at,
+                )
+                for checklist in checklists
+            ],
+        )
+        
+        
+        return response
+            
+            
+    async def update_brcp_warehouse_checklist(
+        self,
+        checklist_id: UUID,
+        data: BRCPWarehouseChecklistRequest,
+    ):
+        checklist = await self.session.execute(
+            select(BRCPWarehouseChecklist).where(BRCPWarehouseChecklist.id == checklist_id)
+        )
+        checklist = checklist.scalar_one_or_none()
+        if not checklist:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "message": "Checklist not found",
+                    "success": False,
+                    "status": status.HTTP_404_NOT_FOUND,
+                    "data": None,
+                },
+            )
+        
+        if data.internal_audit_number:
+            checklist.internal_audit_number = data.internal_audit_number
+            
+        if data.warehouse_incharge:
+            checklist.warehouse_incharge = data.warehouse_incharge
+            
+        if data.supplier:
+            checklist.supplier = data.supplier
+            
+        if data.status:
+            checklist.status = data.status
+            
+        
+        if data.chargers:
+            await self.session.execute(
+                delete(ChargerInfrastructure)
+                .where(ChargerInfrastructure.checklist_id == checklist.id)
+            )
+            
+            self.session.add_all([
+                ChargerInfrastructure(
+                    checklist_id=checklist.id,
+                    type=item.type,
+                    charger_serial_no=item.charger_serial_no,
+                    make=item.make,
+                    year_of_mfg=item.year_of_mfg,
+                    rating=item.rating,
+                    channels_working=item.channels_working,
+                    channels_not_working=item.channels_not_working,
+                    calibration_due_on=item.calibration_due_on,
+                    work_instruction_available=item.work_instruction_available,
+                )
+                for item in data.chargers
+            ])
+            
+        if data.instruments:
+            await self.session.execute(
+                delete(MeasuringInstrument)
+                .where(MeasuringInstrument.checklist_id == checklist.id)
+            )
+            
+            self.session.add_all([
+                MeasuringInstrument(
+                    checklist_id=checklist.id,
+                    instrument_name=item.instrument_name,
+                    imte_no=item.imte_no,
+                    make=item.make,
+                    serial_no=item.serial_no,
+                    calibration_due_on=item.calibration_due_on,
+                )
+                for item in data.instruments
+            ])
+            
+        if data.batteries:
+            await self.session.execute(
+                delete(BatteryRefreshStatus)
+                .where(BatteryRefreshStatus.checklist_id == checklist.id)
+            )
+            
+            self.session.add_all([
+                BatteryRefreshStatus(
+                    checklist_id=checklist.id,
+                    type=item.type,
+                    model=item.model,
+                    total_due_qty=item.total_due_qty,
+                    ageing_91_180=item.ageing_91_180,
+                    refresh_91_180_date=item.refresh_91_180_date,
+                    ageing_181_270=item.ageing_181_270,
+                    refresh_181_270_date=item.refresh_181_270_date,
+                    ageing_271_360=item.ageing_271_360,
+                    refresh_271_360_date=item.refresh_271_360_date,
+                    ageing_361_450=item.ageing_361_450,
+                    refresh_361_450_date=item.refresh_361_450_date,
+                    ageing_451_540=item.ageing_451_540,
+                    refresh_451_540_date=item.refresh_451_540_date,
+                    ageing_above_540=item.ageing_above_540,
+                    remarks=item.remarks,
+                )
+                for item in data.batteries
+            ])
+            
+        if data.additional_info:
+            await self.session.execute(
+                delete(WarehouseAdditionalInfo)
+                .where(WarehouseAdditionalInfo.checklist_id == checklist.id)
+            )
+            
+            self.session.add_all([
+                WarehouseAdditionalInfo(
+                    checklist_id=checklist.id,
+                    operating_by=item.operating_by,
+                    total_manpower=item.total_manpower,
+                    refresh_charging_manpower=item.refresh_charging_manpower,
+                    power_cut_hours_per_day=item.power_cut_hours_per_day,
+                    dg_available=item.dg_available,
+                    additional_information=item.additional_information,
+                )
+                for item in data.additional_info
+            ])
+            
+            
+        await self.session.commit()
+        await self.session.refresh(checklist)
+        return checklist
+    
+    async def delete_brcp_warehouse_checklist(self, checklist_id: UUID):
+        checklist = await self.session.execute(
+            select(BRCPWarehouseChecklist).where(BRCPWarehouseChecklist.id == checklist_id)
+        )
+        checklist = checklist.scalar_one_or_none()
+        if not checklist:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "message": "Checklist not found",
+                    "success": False,
+                    "status": status.HTTP_404_NOT_FOUND,
+                    "data": None,
+                },
+            )
+        await self.session.delete(checklist)
+            
+        await self.session.commit()
+        
+        return checklist
