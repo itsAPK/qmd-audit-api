@@ -501,7 +501,7 @@ async def create_brcp_warehouse_checklist(
         status = ResponseStatus.CREATED
     )
     
-@router.patch("brcp_warehouse_checklist/{checklist_id}", response_model=Response[BRCPWarehouseChecklist])
+@router.patch("/brcp_warehouse_checklist/{checklist_id}", response_model=Response[BRCPWarehouseChecklist])
 async def update_brcp_warehouse_checklist(
     checklist_id: UUID,
     data: BRCPWarehouseChecklistRequest,
@@ -519,7 +519,7 @@ async def update_brcp_warehouse_checklist(
         status = ResponseStatus.UPDATED
     )
     
-@router.delete("brcp_warehouse_checklist/{checklist_id}", response_model=Response[BRCPWarehouseChecklist])
+@router.delete("/brcp_warehouse_checklist/{checklist_id}", response_model=Response[BRCPWarehouseChecklist])
 async def delete_brcp_warehouse_checklist(
     checklist_id: UUID,
     checklist_service: ChecklistService = Depends(get_checklist_service),
