@@ -41,7 +41,7 @@ from app.utils.dsl_filter import apply_filters, apply_sort
 from app.utils.model_graph import ModelGraph
 from app.utils.serializer import to_naive
 from app.users.models import UserResponse, User
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import selectinload
 
 
@@ -70,14 +70,16 @@ class ChecklistService:
         self,
         data: InternalAuditorsChecklistRequested,
         background_tasks,
+        user_id,
     ):
         
         checklist = InternalAuditorsChecklist(
-            internal_audit_number=data.internal_audit_number,
+            internal_audit_number_id=data.internal_audit_number,
             division=data.division,
             audit_area=data.audit_area,
             location=data.location,
             status=data.status,
+            created_by_id=user_id,
         )
         self.session.add(checklist)
         await self.session.commit()
@@ -100,6 +102,7 @@ class ChecklistService:
         self,
         checklist_id: UUID,
         data: InternalAuditorsChecklistUpdate,
+    
     ):
         
         checklist = await self.session.execute(
@@ -118,7 +121,7 @@ class ChecklistService:
             )
         
         if data.internal_audit_number:
-            checklist.internal_audit_number = data.internal_audit_number
+            checklist.internal_audit_number_id = data.internal_audit_number
             
         if data.division:
             checklist.division = data.division
@@ -131,6 +134,23 @@ class ChecklistService:
             
         if data.status:
             checklist.status = data.status
+            
+            
+        if data.items:
+            await self.session.execute(
+                delete(InternalAuditorsChecklistItem)
+                .where(InternalAuditorsChecklistItem.checklist_id == checklist.id)
+            )
+            
+            self.session.add_all([
+                InternalAuditorsChecklistItem(
+                    checklist_id=checklist.id,
+                    activity_description=item.activity_description,
+                    applicable_functions=item.applicable_functions,
+                    audit_findings=item.audit_findings,
+                )
+                for item in data.items
+            ])
             
         await self.session.commit()
         return checklist
@@ -160,6 +180,8 @@ class ChecklistService:
             select(InternalAuditorsChecklist)
             .where(InternalAuditorsChecklist.id == checklist_id)
             .options(
+                selectinload(InternalAuditorsChecklist.created_by),
+                 selectinload(InternalAuditorsChecklist.internal_audit_number),
                 selectinload(InternalAuditorsChecklist.items).options(
                     selectinload(InternalAuditorsChecklistItem.checklist)
                 ),
@@ -212,6 +234,7 @@ class ChecklistService:
             selectinload(InternalAuditorsChecklist.items).options(
                 selectinload(InternalAuditorsChecklistItem.checklist)
             ),
+            selectinload(InternalAuditorsChecklist.internal_audit_number),
             selectinload(InternalAuditorsChecklist.created_by),
         )
         from_date = to_naive(from_date)
@@ -432,7 +455,29 @@ class ChecklistService:
         if data.status:
             checklist.status = data.status
             
+        if data.observations:
+            await self.session.execute(
+                delete(InternalAuditObservationChecklistItem)
+                .where(InternalAuditObservationChecklistItem.checklist_id == checklist.id)
+            )
+            
+            self.session.add_all([
+                InternalAuditObservationChecklistItem(
+                    checklist_id=checklist.id,
+                    sl_no=item.sl_no,
+                    procedure_ref=item.procedure_ref,
+                    qms_check_point=item.qms_check_point,
+                    observation=item.observation,
+                    clause_no=item.clause_no,
+                    ncr_type=item.ncr_type,
+                    
+                )
+                for item in data.observations
+            ])
+            
+            
         await self.session.commit()
+        await self.session.refresh(checklist)
         return checklist
     
     async def delete_internal_audit_observation(self, checklist_id: UUID):
@@ -704,17 +749,20 @@ class ChecklistService:
             
             
         return checklist
-    
+        
+
     async def update_franchise_audit_checklist(
         self,
         checklist_id: UUID,
         data: FranchiseAuditChecklistUpdate,
     ):
-        
-        checklist = await self.session.execute(
-            select(FranchiseAuditChecklist).where(FranchiseAuditChecklist.id == checklist_id)
+        result = await self.session.execute(
+            select(FranchiseAuditChecklist)
+            .where(FranchiseAuditChecklist.id == checklist_id)
+            .options(selectinload(FranchiseAuditChecklist.observations))
         )
-        checklist = checklist.scalar_one_or_none()
+        checklist = result.scalar_one_or_none()
+
         if not checklist:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -725,35 +773,56 @@ class ChecklistService:
                     "data": None,
                 },
             )
-            
-        if data.status:
-            
+
+        if data.status is not None:
             checklist.status = data.status
-        
-        if data.division:
+
+        if data.division is not None:
             checklist.division = data.division
-            
-        if data.audit_area:
+
+        if data.audit_area is not None:
             checklist.audit_area = data.audit_area
-            
-        if data.location:
+
+        if data.location is not None:
             checklist.location = data.location
-            
-        if data.franchise_name:
+
+        if data.franchise_name is not None:
             checklist.franchise_name = data.franchise_name
-            
-        if data.audit_date:
+
+        if data.audit_date is not None:
             checklist.audit_date = to_naive(data.audit_date)
-            
-        if data.suggestions:
+
+        if data.suggestions is not None:
             checklist.suggestions = data.suggestions
-            
-        if data.service_engineer_sign:
+
+        if data.service_engineer_sign is not None:
             checklist.service_engineer_sign = data.service_engineer_sign
-            
+
+        if data.observations is not None:
+
+            await self.session.execute(
+                delete(FranchiseAuditObservation)
+                .where(FranchiseAuditObservation.checklist_id == checklist.id)
+            )
+
+            self.session.add_all([
+                FranchiseAuditObservation(
+                    checklist_id=checklist.id,
+                    section=obs.section,
+                    sl_no=obs.sl_no,
+                    requirement=obs.requirement,
+                    observation=obs.observation,
+                )
+                for obs in data.observations
+            ])
+
+
         await self.session.commit()
+
+        await self.session.refresh(checklist)
+
         return checklist
-    
+        
     async def delete_franchise_audit_checklist(self, checklist_id: UUID):
         checklist = await self.session.execute(
             select(FranchiseAuditChecklist).where(FranchiseAuditChecklist.id == checklist_id)

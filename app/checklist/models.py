@@ -27,7 +27,12 @@ class InternalAuditorsChecklistItem(BaseModel, table=True):
 
 
 class InternalAuditorsChecklist(BaseModel, table=True):
-    internal_audit_number: str
+    internal_audit_number_id: UUID = Field(
+        sa_column=Column(
+            PG_UUID, ForeignKey("auditinfo.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+    internal_audit_number: 'AuditInfo' = Relationship(back_populates="internal_audit_checklists")
     division: str
     audit_area: str
     location: str
@@ -239,6 +244,7 @@ class InternalAuditorsChecklistItemRequest(PydanticBaseModel):
     audit_findings: str
 
 
+
 class InternalAuditorsChecklistRequested(PydanticBaseModel):
     internal_audit_number: str
     division: str
@@ -254,11 +260,13 @@ class InternalAuditorsChecklistUpdate(PydanticBaseModel):
     audit_area: Optional[str] = None
     location: Optional[str] = None
     status: Optional[ChecklistStatus] = None
+    items: Optional[List[InternalAuditorsChecklistItemRequest]] = None
+    
     
     
 class InternalAuditorsChecklistResponse(PydanticBaseModel):
     id: UUID
-    internal_audit_number: str
+    internal_audit_number: Any
     division: str
     audit_area: str
     location: str
@@ -273,6 +281,12 @@ class  InternalAuditorsChecklistItemResponse(PydanticBaseModel):
     applicable_functions: str
     audit_findings: str
     checklist_id: UUID
+    
+class InternalAuditorsChecklistItemUpdate(PydanticBaseModel):
+    activity_description: Optional[str] = None
+    applicable_functions: Optional[str] = None
+    audit_findings: Optional[str] = None
+    
     
 class InternalAuditorsChecklistListResponse(PydanticBaseModel):
     total: int
@@ -305,6 +319,7 @@ class InternalAuditObservationChecklistUpdate(PydanticBaseModel):
     location: Optional[str] = None
     status: Optional[ChecklistStatus] = None
     auditee_name: Optional[str] = None
+    observations: Optional[List["InternalAuditObservationChecklistItemRequest"]] = None
 
 class InternalAuditObservationChecklistItemUpdate(PydanticBaseModel):
     sl_no: Optional[str] = None
@@ -375,6 +390,7 @@ class FranchiseAuditChecklistUpdate(PydanticBaseModel):
     suggestions: Optional[str] = None
     service_engineer_sign: Optional[str] = None
     status : Optional[ChecklistStatus] = None
+    observations: Optional[List["FranchiseAuditObservationUpdate"]] = None
     
     
 class FranchiseAuditObservationUpdate(PydanticBaseModel):

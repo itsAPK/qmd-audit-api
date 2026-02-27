@@ -52,6 +52,11 @@ class AuditInfo(BaseModel, table=True):
         back_populates="internal_audit_number",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
+    internal_audit_checklists : list["InternalAuditorsChecklist"] = Relationship(
+        back_populates="internal_audit_number",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
+    
     
 
 class AuditTeamRole(str, Enum):
@@ -133,4 +138,4 @@ from app.settings.models import Department,DepartmentResponse
 from app.users.models import User,UserResponse
 from app.ncr.models import NCR
 from app.suggestions.models import Suggestion
-from app.checklist.models import InternalAuditObservationChecklist
+from app.checklist.models import InternalAuditObservationChecklist,InternalAuditorsChecklist

@@ -20,9 +20,10 @@ async def create_internal_auditors_checklist(
     data: InternalAuditorsChecklistRequested,
     background_tasks : BackgroundTasks,
     checklist_service: ChecklistService = Depends(get_checklist_service),
+    user : User = Depends(authenticate),
 ):
     res = await checklist_service.create_internal_auditors_checklist(
-        data=data, background_tasks=background_tasks
+        data=data, background_tasks=background_tasks,user_id=user.id
     )
     
     return Response(
