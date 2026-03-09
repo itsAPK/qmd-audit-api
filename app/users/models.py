@@ -4,7 +4,7 @@ from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
 from enum import Enum
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
 from sqlalchemy import ARRAY, Column, ForeignKey, String
@@ -147,10 +147,10 @@ class UpdateUserRequest(PydanticBaseModel):
 
 
 class UserDepartmentResponse(PydanticBaseModel):
-    id: UUID
-    user_id: UUID
-    department_id: UUID
-    role_id: UUID
+    id: Any
+    user_id: Any
+    department_id: Any
+    role_id: Any
     department: Optional["Department"] = None
     role: Optional["UserRole"] = None
     user: Optional["User"] = None
